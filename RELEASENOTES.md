@@ -6,6 +6,8 @@
 *   ExoPlayer:
     *   Add support for using the virtual device ID from the `Context` passed to
         `ExoPlayer.Builder`.
+    *   Add `cloneAndMove` to `ShuffleMode` with a default implementation
+        ([#2226](https://github.com/androidx/media/pull/2226)).
 *   Transformer:
 *   Track Selection:
 *   Extractors:
