@@ -470,7 +470,7 @@ import java.util.concurrent.Future;
             ? checkNotNull(getMediaNotificationControllerInfo())
             : controller;
     ListenableFuture<MediaSession.MediaItemsWithStartPosition> future =
-        callback.onPlaybackResumption(instance, controller);
+        callback.onPlaybackResumption(instance, controller, false);
     Futures.addCallback(
         future,
         new FutureCallback<MediaSession.MediaItemsWithStartPosition>() {
