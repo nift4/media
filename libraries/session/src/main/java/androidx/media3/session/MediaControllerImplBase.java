@@ -835,7 +835,9 @@ import org.checkerframework.checker.nullness.qual.NonNull;
             iSession.setMediaItem(
                 controllerStub,
                 seq,
-                mediaItem.toBundleIncludeLocalConfiguration(getSessionInterfaceVersion())));
+                iSession instanceof MediaSessionStub
+                    ? mediaItem.toBundleIncludeLocalConfigurationForLocalProcess()
+                    : mediaItem.toBundleIncludeLocalConfiguration(getSessionInterfaceVersion())));
 
     setMediaItemsInternal(
         Collections.singletonList(mediaItem),
@@ -855,7 +857,9 @@ import org.checkerframework.checker.nullness.qual.NonNull;
             iSession.setMediaItemWithStartPosition(
                 controllerStub,
                 seq,
-                mediaItem.toBundleIncludeLocalConfiguration(getSessionInterfaceVersion()),
+                iSession instanceof MediaSessionStub
+                    ? mediaItem.toBundleIncludeLocalConfigurationForLocalProcess()
+                    : mediaItem.toBundleIncludeLocalConfiguration(getSessionInterfaceVersion()),
                 startPositionMs));
 
     setMediaItemsInternal(
@@ -876,7 +880,9 @@ import org.checkerframework.checker.nullness.qual.NonNull;
             iSession.setMediaItemWithResetPosition(
                 controllerStub,
                 seq,
-                mediaItem.toBundleIncludeLocalConfiguration(getSessionInterfaceVersion()),
+                iSession instanceof MediaSessionStub
+                    ? mediaItem.toBundleIncludeLocalConfigurationForLocalProcess()
+                    : mediaItem.toBundleIncludeLocalConfiguration(getSessionInterfaceVersion()),
                 resetPosition));
 
     setMediaItemsInternal(
@@ -897,12 +903,14 @@ import org.checkerframework.checker.nullness.qual.NonNull;
             iSession.setMediaItems(
                 controllerStub,
                 seq,
-                new BundleListRetriever(
-                    BundleCollectionUtil.toBundleList(
-                        mediaItems,
-                        item ->
-                            item.toBundleIncludeLocalConfiguration(
-                                getSessionInterfaceVersion())))));
+                iSession instanceof MediaSessionStub
+                    ? new MediaItem.ListInProcessBinder(mediaItems)
+                    : new BundleListRetriever(
+                        BundleCollectionUtil.toBundleList(
+                            mediaItems,
+                            item ->
+                                item.toBundleIncludeLocalConfiguration(
+                                    getSessionInterfaceVersion())))));
 
     setMediaItemsInternal(
         mediaItems,
@@ -922,11 +930,14 @@ import org.checkerframework.checker.nullness.qual.NonNull;
             iSession.setMediaItemsWithResetPosition(
                 controllerStub,
                 seq,
-                new BundleListRetriever(
-                    BundleCollectionUtil.toBundleList(
-                        mediaItems,
-                        item ->
-                            item.toBundleIncludeLocalConfiguration(getSessionInterfaceVersion()))),
+                iSession instanceof MediaSessionStub
+                    ? new MediaItem.ListInProcessBinder(mediaItems)
+                    : new BundleListRetriever(
+                        BundleCollectionUtil.toBundleList(
+                            mediaItems,
+                            item ->
+                                item.toBundleIncludeLocalConfiguration(
+                                    getSessionInterfaceVersion()))),
                 resetPosition));
 
     setMediaItemsInternal(
@@ -947,11 +958,14 @@ import org.checkerframework.checker.nullness.qual.NonNull;
             iSession.setMediaItemsWithStartIndex(
                 controllerStub,
                 seq,
-                new BundleListRetriever(
-                    BundleCollectionUtil.toBundleList(
-                        mediaItems,
-                        item ->
-                            item.toBundleIncludeLocalConfiguration(getSessionInterfaceVersion()))),
+                iSession instanceof MediaSessionStub
+                    ? new MediaItem.ListInProcessBinder(mediaItems)
+                    : new BundleListRetriever(
+                        BundleCollectionUtil.toBundleList(
+                            mediaItems,
+                            item ->
+                                item.toBundleIncludeLocalConfiguration(
+                                    getSessionInterfaceVersion()))),
                 startIndex,
                 startPositionMs));
 
@@ -968,7 +982,11 @@ import org.checkerframework.checker.nullness.qual.NonNull;
     dispatchRemoteSessionTaskWithPlayerCommand(
         (iSession, seq) ->
             iSession.setPlaylistMetadata(
-                controllerStub, seq, playlistMetadata.toBundle(getSessionInterfaceVersion())));
+                controllerStub,
+                seq,
+                iSession instanceof MediaSessionStub
+                    ? playlistMetadata.toBundleForLocalProcess()
+                    : playlistMetadata.toBundle(getSessionInterfaceVersion())));
 
     if (!playerInfo.playlistMetadata.equals(playlistMetadata)) {
       playerInfo = playerInfo.copyWithPlaylistMetadata(playlistMetadata);
@@ -995,7 +1013,9 @@ import org.checkerframework.checker.nullness.qual.NonNull;
             iSession.addMediaItem(
                 controllerStub,
                 seq,
-                mediaItem.toBundleIncludeLocalConfiguration(getSessionInterfaceVersion())));
+                iSession instanceof MediaSessionStub
+                    ? mediaItem.toBundleIncludeLocalConfigurationForLocalProcess()
+                    : mediaItem.toBundleIncludeLocalConfiguration(getSessionInterfaceVersion())));
 
     addMediaItemsInternal(
         getCurrentTimeline().getWindowCount(), Collections.singletonList(mediaItem));
@@ -1014,7 +1034,9 @@ import org.checkerframework.checker.nullness.qual.NonNull;
                 controllerStub,
                 seq,
                 index,
-                mediaItem.toBundleIncludeLocalConfiguration(getSessionInterfaceVersion())));
+                iSession instanceof MediaSessionStub
+                    ? mediaItem.toBundleIncludeLocalConfigurationForLocalProcess()
+                    : mediaItem.toBundleIncludeLocalConfiguration(getSessionInterfaceVersion())));
 
     addMediaItemsInternal(index, Collections.singletonList(mediaItem));
   }
@@ -1030,12 +1052,14 @@ import org.checkerframework.checker.nullness.qual.NonNull;
             iSession.addMediaItems(
                 controllerStub,
                 seq,
-                new BundleListRetriever(
-                    BundleCollectionUtil.toBundleList(
-                        mediaItems,
-                        item ->
-                            item.toBundleIncludeLocalConfiguration(
-                                getSessionInterfaceVersion())))));
+                iSession instanceof MediaSessionStub
+                    ? new MediaItem.ListInProcessBinder(mediaItems)
+                    : new BundleListRetriever(
+                        BundleCollectionUtil.toBundleList(
+                            mediaItems,
+                            item ->
+                                item.toBundleIncludeLocalConfiguration(
+                                    getSessionInterfaceVersion())))));
 
     addMediaItemsInternal(getCurrentTimeline().getWindowCount(), mediaItems);
   }
@@ -1053,12 +1077,14 @@ import org.checkerframework.checker.nullness.qual.NonNull;
                 controllerStub,
                 seq,
                 index,
-                new BundleListRetriever(
-                    BundleCollectionUtil.toBundleList(
-                        mediaItems,
-                        item ->
-                            item.toBundleIncludeLocalConfiguration(
-                                getSessionInterfaceVersion())))));
+                iSession instanceof MediaSessionStub
+                    ? new MediaItem.ListInProcessBinder(mediaItems)
+                    : new BundleListRetriever(
+                        BundleCollectionUtil.toBundleList(
+                            mediaItems,
+                            item ->
+                                item.toBundleIncludeLocalConfiguration(
+                                    getSessionInterfaceVersion())))));
 
     addMediaItemsInternal(index, mediaItems);
   }
@@ -1411,7 +1437,9 @@ import org.checkerframework.checker.nullness.qual.NonNull;
                 controllerStub,
                 seq,
                 index,
-                mediaItem.toBundleIncludeLocalConfiguration(getSessionInterfaceVersion()));
+                iSession instanceof MediaSessionStub
+                    ? mediaItem.toBundleIncludeLocalConfigurationForLocalProcess()
+                    : mediaItem.toBundleIncludeLocalConfiguration(getSessionInterfaceVersion()));
           } else {
             iSession.addMediaItemWithIndex(
                 controllerStub,
@@ -1435,11 +1463,14 @@ import org.checkerframework.checker.nullness.qual.NonNull;
     dispatchRemoteSessionTaskWithPlayerCommand(
         (iSession, seq) -> {
           IBinder mediaItemsBundleBinder =
-              new BundleListRetriever(
-                  BundleCollectionUtil.toBundleList(
-                      mediaItems,
-                      item ->
-                          item.toBundleIncludeLocalConfiguration(getSessionInterfaceVersion())));
+              iSession instanceof MediaSessionStub
+                  ? new MediaItem.ListInProcessBinder(mediaItems)
+                  : new BundleListRetriever(
+                      BundleCollectionUtil.toBundleList(
+                          mediaItems,
+                          item ->
+                              item.toBundleIncludeLocalConfiguration(
+                                  getSessionInterfaceVersion())));
           if (getSessionInterfaceVersion() >= 2) {
             iSession.replaceMediaItems(
                 controllerStub, seq, fromIndex, toIndex, mediaItemsBundleBinder);
@@ -2149,7 +2180,12 @@ import org.checkerframework.checker.nullness.qual.NonNull;
 
     dispatchRemoteSessionTaskWithPlayerCommand(
         (iSession, seq) ->
-            iSession.setTrackSelectionParameters(controllerStub, seq, parameters.toBundle()));
+            iSession.setTrackSelectionParameters(
+                controllerStub,
+                seq,
+                iSession instanceof MediaSessionStub
+                    ? parameters.toBundleForLocalProcess()
+                    : parameters.toBundle()));
 
     if (parameters != playerInfo.trackSelectionParameters) {
       playerInfo = playerInfo.copyWithTrackSelectionParameters(parameters);
