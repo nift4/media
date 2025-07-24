@@ -2181,13 +2181,21 @@ import java.util.concurrent.ExecutionException;
 
     @Override
     public void onSessionResult(int sequenceNumber, SessionResult result) throws RemoteException {
-      iController.onSessionResult(sequenceNumber, result.toBundle());
+      iController.onSessionResult(
+          sequenceNumber,
+          iController instanceof MediaControllerStub
+              ? result.toBundleForLocalProcess()
+              : result.toBundle());
     }
 
     @Override
     public void onLibraryResult(int sequenceNumber, LibraryResult<?> result)
         throws RemoteException {
-      iController.onLibraryResult(sequenceNumber, result.toBundle());
+      iController.onLibraryResult(
+          sequenceNumber,
+          iController instanceof MediaControllerStub
+              ? result.toBundleForLocalProcess()
+              : result.toBundle());
     }
 
     @Override
@@ -2322,11 +2330,14 @@ import java.util.concurrent.ExecutionException;
         boolean canAccessTimeline,
         int controllerInterfaceVersion)
         throws RemoteException {
+      SessionPositionInfo filteredPositionInfo =
+          sessionPositionInfo.filterByAvailableCommands(
+              canAccessCurrentMediaItem, canAccessTimeline);
       iController.onPeriodicSessionPositionInfoChanged(
           sequenceNumber,
-          sessionPositionInfo
-              .filterByAvailableCommands(canAccessCurrentMediaItem, canAccessTimeline)
-              .toBundle(controllerInterfaceVersion));
+          iController instanceof MediaControllerStub
+              ? filteredPositionInfo.toBundleForLocalProcess()
+              : filteredPositionInfo.toBundle(controllerInterfaceVersion));
     }
 
     @Override
