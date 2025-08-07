@@ -32,6 +32,7 @@ import static androidx.media3.exoplayer.DecoderReuseEvaluation.REUSE_RESULT_YES_
 import static androidx.media3.exoplayer.mediacodec.MediaCodecPerformancePointCoverageProvider.COVERAGE_RESULT_NO;
 import static androidx.media3.exoplayer.mediacodec.MediaCodecPerformancePointCoverageProvider.COVERAGE_RESULT_YES;
 import static androidx.media3.exoplayer.mediacodec.MediaCodecUtil.createCodecProfileLevel;
+import static com.google.common.base.Preconditions.checkNotNull;
 
 import android.graphics.Point;
 import android.media.MediaCodec;
@@ -49,7 +50,6 @@ import androidx.media3.common.C;
 import androidx.media3.common.ColorInfo;
 import androidx.media3.common.Format;
 import androidx.media3.common.MimeTypes;
-import androidx.media3.common.util.Assertions;
 import androidx.media3.common.util.Log;
 import androidx.media3.common.util.UnstableApi;
 import androidx.media3.common.util.Util;
@@ -215,7 +215,7 @@ public final class MediaCodecInfo {
       boolean tunneling,
       boolean secure,
       boolean detachedSurfaceSupported) {
-    this.name = Assertions.checkNotNull(name);
+    this.name = checkNotNull(name);
     this.mimeType = mimeType;
     this.codecMimeType = codecMimeType;
     this.capabilities = capabilities;

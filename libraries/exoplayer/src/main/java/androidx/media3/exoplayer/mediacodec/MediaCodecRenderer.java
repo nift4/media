@@ -52,7 +52,6 @@ import androidx.media3.common.C;
 import androidx.media3.common.Format;
 import androidx.media3.common.MimeTypes;
 import androidx.media3.common.PlaybackException;
-import androidx.media3.common.util.Assertions;
 import androidx.media3.common.util.Log;
 import androidx.media3.common.util.TimedValueQueue;
 import androidx.media3.common.util.TraceUtil;
@@ -1126,8 +1125,7 @@ public abstract class MediaCodecRenderer extends BaseRenderer {
         && cryptoConfig instanceof FrameworkCryptoConfig) {
       @DrmSession.State int drmSessionState = codecDrmSession.getState();
       if (drmSessionState == DrmSession.STATE_ERROR) {
-        DrmSessionException drmSessionException =
-            Assertions.checkNotNull(codecDrmSession.getError());
+        DrmSessionException drmSessionException = checkNotNull(codecDrmSession.getError());
         throw createRendererException(
             drmSessionException, inputFormat, drmSessionException.errorCode);
       } else if (drmSessionState != DrmSession.STATE_OPENED_WITH_KEYS) {
@@ -2494,7 +2492,7 @@ public abstract class MediaCodecRenderer extends BaseRenderer {
     }
 
     if (bypassSampleBufferPending) {
-      Assertions.checkState(bypassBatchBuffer.append(bypassSampleBuffer));
+      checkState(bypassBatchBuffer.append(bypassSampleBuffer));
       bypassSampleBufferPending = false;
     }
 
