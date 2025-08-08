@@ -19,7 +19,6 @@ import static android.os.Build.VERSION.SDK_INT;
 import static androidx.media3.common.PlaybackException.ERROR_CODE_AUDIO_TRACK_WRITE_FAILED;
 import static androidx.media3.common.PlaybackException.ERROR_CODE_VIDEO_FRAME_PROCESSING_FAILED;
 import static androidx.media3.common.PlaybackException.ERROR_CODE_VIDEO_FRAME_PROCESSOR_INIT_FAILED;
-import static androidx.media3.common.util.Assertions.checkStateNotNull;
 import static androidx.media3.exoplayer.DefaultRenderersFactory.DEFAULT_ALLOWED_VIDEO_JOINING_TIME_MS;
 import static androidx.media3.exoplayer.DefaultRenderersFactory.MAX_DROPPED_VIDEO_FRAME_COUNT_TO_NOTIFY;
 import static androidx.media3.exoplayer.video.VideoSink.RELEASE_FIRST_FRAME_IMMEDIATELY;
@@ -168,8 +167,7 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
       }
       renderers.add(primaryVideoRenderer);
       if (imageRenderer == null) {
-        imageRenderer =
-            new SequenceImageRenderer(checkStateNotNull(imageDecoderFactory), videoSink);
+        imageRenderer = new SequenceImageRenderer(checkNotNull(imageDecoderFactory), videoSink);
       }
       renderers.add(imageRenderer);
     }
@@ -282,7 +280,7 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
       int periodIndex = getTimeline().getIndexOfPeriod(mediaPeriodId.periodUid);
       // We must first update the pending media item state before calling super.onStreamChanged()
       // because the super method will call onProcessedStreamChange()
-      checkStateNotNull(sequence);
+      checkNotNull(sequence);
       pendingEditedMediaItem = getEditedMediaItem(sequence, periodIndex);
       pendingOffsetToCompositionTimeUs =
           getOffsetToCompositionTimeUs(getTimeline(), mediaPeriodId, offsetUs);
@@ -304,8 +302,8 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
     // Other methods
 
     private void onMediaItemChanged() {
-      checkStateNotNull(sequence);
-      EditedMediaItem currentEditedMediaItem = checkStateNotNull(pendingEditedMediaItem);
+      checkNotNull(sequence);
+      EditedMediaItem currentEditedMediaItem = checkNotNull(pendingEditedMediaItem);
       audioSink.onMediaItemChanged(
           currentEditedMediaItem,
           pendingOffsetToCompositionTimeUs,
@@ -383,7 +381,7 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
         long offsetUs,
         MediaSource.MediaPeriodId mediaPeriodId)
         throws ExoPlaybackException {
-      checkStateNotNull(sequence);
+      checkNotNull(sequence);
       checkState(getTimeline().getWindowCount() == 1);
       // The media item might have been repeated in the sequence.
       int periodIndex = getTimeline().getIndexOfPeriod(mediaPeriodId.periodUid);
@@ -448,7 +446,7 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
 
     @Override
     protected void renderToEndOfStream() {
-      checkStateNotNull(sequence);
+      checkNotNull(sequence);
       super.renderToEndOfStream();
       if (isLastInSequence(getTimeline(), sequence, checkNotNull(currentEditedMediaItem))) {
         bufferingVideoSink.signalEndOfInput();
@@ -611,7 +609,7 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
         long offsetUs,
         MediaSource.MediaPeriodId mediaPeriodId)
         throws ExoPlaybackException {
-      checkStateNotNull(sequence);
+      checkNotNull(sequence);
       checkState(getTimeline().getWindowCount() == 1);
       streamStartPositionUs = startPositionUs;
       // The media item might have been repeated in the sequence.
@@ -662,7 +660,7 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
         nextFirstFrameReleaseInstruction = RELEASE_FIRST_FRAME_WHEN_PREVIOUS_STREAM_PROCESSED;
         inputStreamPending = false;
       }
-      if (!videoSink.handleInputBitmap(outputImage, checkStateNotNull(timestampIterator))) {
+      if (!videoSink.handleInputBitmap(outputImage, checkNotNull(timestampIterator))) {
         return false;
       }
       videoSink.signalEndOfCurrentInputStream();

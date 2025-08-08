@@ -16,7 +16,7 @@
 
 package androidx.media3.exoplayer.mediacodec;
 
-import static androidx.media3.common.util.Assertions.checkStateNotNull;
+import static com.google.common.base.Preconditions.checkNotNull;
 import static com.google.common.base.Preconditions.checkState;
 
 import android.media.MediaCodec;
@@ -163,7 +163,7 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
         } else {
           int bufferIndex = availableOutputBuffers.popFirst();
           if (bufferIndex >= 0) {
-            checkStateNotNull(currentFormat);
+            checkNotNull(currentFormat);
             MediaCodec.BufferInfo nextBufferInfo = bufferInfos.remove();
             bufferInfo.set(
                 nextBufferInfo.offset,

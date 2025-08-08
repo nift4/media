@@ -16,7 +16,6 @@
 package androidx.media3.exoplayer;
 
 import static android.os.Build.VERSION.SDK_INT;
-import static androidx.media3.common.util.Assertions.checkStateNotNull;
 import static com.google.common.base.Preconditions.checkNotNull;
 
 import android.annotation.SuppressLint;
@@ -134,7 +133,7 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
 
     @Override
     public void disable() {
-      checkStateNotNull(isSuitableForPlaybackState)
+      checkNotNull(isSuitableForPlaybackState)
           .runInBackground(
               () -> {
                 checkNotNull(router).unregisterControllerCallback(checkNotNull(controllerCallback));
@@ -246,7 +245,7 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
 
     private boolean hasSupportedAudioOutput() {
       AudioDeviceInfo[] audioDeviceInfos =
-          checkStateNotNull(audioManager).getDevices(AudioManager.GET_DEVICES_OUTPUTS);
+          checkNotNull(audioManager).getDevices(AudioManager.GET_DEVICES_OUTPUTS);
       for (AudioDeviceInfo device : audioDeviceInfos) {
         if (device.getType() == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP
             || device.getType() == AudioDeviceInfo.TYPE_LINE_ANALOG

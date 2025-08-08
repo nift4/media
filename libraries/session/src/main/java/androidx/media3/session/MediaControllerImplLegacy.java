@@ -16,7 +16,6 @@
 package androidx.media3.session;
 
 import static android.os.Build.VERSION.SDK_INT;
-import static androidx.media3.common.util.Assertions.checkStateNotNull;
 import static androidx.media3.session.MediaUtils.calculateBufferedPercentage;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
@@ -157,7 +156,7 @@ import org.checkerframework.checker.initialization.qual.UnderInitialization;
   @Override
   public void connect(@UnderInitialization MediaControllerImplLegacy this) {
     if (this.token.getType() == SessionToken.TYPE_SESSION) {
-      connectToSession((MediaSessionCompat.Token) checkStateNotNull(this.token.getBinder()));
+      connectToSession((MediaSessionCompat.Token) checkNotNull(this.token.getBinder()));
     } else {
       connectToService();
     }
@@ -2260,7 +2259,7 @@ import org.checkerframework.checker.initialization.qual.UnderInitialization;
       mediaItemTransitionReason = Player.MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED;
     } else {
       MediaItem oldCurrentMediaItem =
-          checkStateNotNull(oldControllerInfo.playerInfo.getCurrentMediaItem());
+          checkNotNull(oldControllerInfo.playerInfo.getCurrentMediaItem());
       boolean oldCurrentMediaItemExistsInNewTimeline =
           ((QueueTimeline) newControllerInfo.playerInfo.timeline).contains(oldCurrentMediaItem);
       if (!oldCurrentMediaItemExistsInNewTimeline) {
