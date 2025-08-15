@@ -625,7 +625,8 @@ public abstract class DecoderAudioRenderer<
 
   @Override
   public boolean isReady() {
-    return audioSink.hasPendingData();
+    return audioSink.hasPendingData()
+        || (inputFormat != null && (isSourceReady() || outputBuffer != null));
   }
 
   @Override
@@ -771,11 +772,6 @@ public abstract class DecoderAudioRenderer<
         super.handleMessage(messageType, message);
         break;
     }
-  }
-
-  /** Returns whether the renderer is ready to start or continue decoding. */
-  protected final boolean isReadyForDecoding() {
-    return inputFormat != null && (isSourceReady() || outputBuffer != null);
   }
 
   private void maybeInitDecoder() throws ExoPlaybackException {
