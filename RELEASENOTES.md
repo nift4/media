@@ -186,6 +186,8 @@
 *   Remove deprecated symbols:
     *   Remove deprecated `DefaultPreloadManager` constructor. Use
         `DefaultPreloadManager.Builder` instead.
+    *   Removed deprecated `EditedMediaItemSequence` constructors. Use
+        `EditedMediaItemSequence.Builder` instead.
 
 ## 1.8
 
