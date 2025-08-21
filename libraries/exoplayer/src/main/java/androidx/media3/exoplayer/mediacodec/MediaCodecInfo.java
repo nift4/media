@@ -309,7 +309,7 @@ public final class MediaCodecInfo {
   }
 
   private boolean isSampleMimeTypeSupported(Format format) {
-    if (name.equals("c2.qti.alac.sw.decoder")) {
+    if (name.equals("c2.qti.alac.sw.decoder") || name.equals("c2.qti.alac.hw.decoder")) {
       return false;
     }
     return mimeType.equals(format.sampleMimeType)
