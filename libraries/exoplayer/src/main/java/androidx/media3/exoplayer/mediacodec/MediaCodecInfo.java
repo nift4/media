@@ -321,6 +321,9 @@ public final class MediaCodecInfo {
   }
 
   private boolean isSampleMimeTypeSupported(Format format) {
+    if (name.equals("c2.qti.alac.sw.decoder")) {
+      return false;
+    }
     return mimeType.equals(format.sampleMimeType)
         || MediaCodecUtil.getAlternativeCodecMimeTypes(format).contains(mimeType);
   }
