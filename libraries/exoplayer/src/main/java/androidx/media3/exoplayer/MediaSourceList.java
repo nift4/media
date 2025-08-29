@@ -673,6 +673,23 @@ import java.util.Set;
       }
     }
 
+    @Override
+    public void onCurrentBitrateAvailable(
+            int windowIndex,
+            @Nullable MediaSource.MediaPeriodId mediaPeriodId,
+            long timeUs,
+            int bitrate) {
+      @Nullable
+      Pair<Integer, MediaSource.@NullableType MediaPeriodId> eventParameters =
+              getEventParameters(windowIndex, mediaPeriodId);
+      if (eventParameters != null) {
+        eventHandler.post(
+                () ->
+                        eventListener.onCurrentBitrateAvailable(
+                                eventParameters.first, eventParameters.second, timeUs, bitrate));
+      }
+    }
+
     // DrmSessionEventListener implementation
 
     @Override

@@ -66,6 +66,10 @@ public class SampleQueue implements TrackOutput {
     void onUpstreamFormatChanged(Format format);
   }
 
+  public interface BitrateListener {
+    void onCurrentBitrateAvailable(long timeUs, int bitrate);
+  }
+
   @VisibleForTesting /* package */ static final int SAMPLE_CAPACITY_INCREMENT = 1000;
   private static final String TAG = "SampleQueue";
 
@@ -75,6 +79,7 @@ public class SampleQueue implements TrackOutput {
   @Nullable private final DrmSessionManager drmSessionManager;
   @Nullable private final DrmSessionEventListener.EventDispatcher drmEventDispatcher;
   @Nullable private UpstreamFormatChangedListener upstreamFormatChangeListener;
+  @Nullable private BitrateListener bitrateListener;
 
   @Nullable private Format downstreamFormat;
   @Nullable private DrmSession currentDrmSession;
@@ -577,6 +582,10 @@ public class SampleQueue implements TrackOutput {
     upstreamFormatChangeListener = listener;
   }
 
+  public final void setBitrateListener(@Nullable BitrateListener listener) {
+    bitrateListener = listener;
+  }
+
   // TrackOutput implementation. Called by the loading thread.
 
   @Override
@@ -648,6 +657,14 @@ public class SampleQueue implements TrackOutput {
 
     long absoluteOffset = sampleDataQueue.getTotalBytesWritten() - size - offset;
     commitSample(timeUs, flags, absoluteOffset, size, cryptoData);
+  }
+
+  @Override
+  public void sampleBitrate(long timeUs, int bitrate) {
+    if (bitrateListener == null) {
+      return;
+    }
+    bitrateListener.onCurrentBitrateAvailable(timeUs, bitrate);
   }
 
   /**
