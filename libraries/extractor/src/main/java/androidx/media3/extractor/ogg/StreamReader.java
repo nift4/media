@@ -18,16 +18,21 @@ package androidx.media3.extractor.ogg;
 import static androidx.media3.common.util.Util.castNonNull;
 import static com.google.common.base.Preconditions.checkNotNull;
 
+import android.util.Log;
+
 import androidx.media3.common.C;
 import androidx.media3.common.Format;
 import androidx.media3.common.util.ParsableByteArray;
 import androidx.media3.extractor.Extractor;
 import androidx.media3.extractor.ExtractorInput;
 import androidx.media3.extractor.ExtractorOutput;
+import androidx.media3.extractor.OpusUtil;
 import androidx.media3.extractor.PositionHolder;
 import androidx.media3.extractor.SeekMap;
 import androidx.media3.extractor.TrackOutput;
 import java.io.IOException;
+import java.nio.ByteBuffer;
+
 import org.checkerframework.checker.nullness.qual.EnsuresNonNull;
 import org.checkerframework.checker.nullness.qual.EnsuresNonNullIf;
 import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
@@ -219,7 +224,11 @@ import org.checkerframework.checker.nullness.qual.RequiresNonNull;
       if (granulesInPacket >= 0 && currentGranule + granulesInPacket >= targetGranule) {
         // calculate time and send payload data to codec
         long timeUs = convertGranuleToTime(currentGranule);
+        int size = payload.limit();
+        long durationUs = OpusUtil.getPacketDurationUs(payload.getData());
         trackOutput.sampleData(payload, payload.limit());
+        long bitrate = ((long) size * C.BITS_PER_BYTE * 1000L) / durationUs;
+        trackOutput.sampleBitrate(timeUs, (int) bitrate);
         trackOutput.sampleMetadata(timeUs, C.BUFFER_FLAG_KEY_FRAME, payload.limit(), 0, null);
         targetGranule = -1;
       }
