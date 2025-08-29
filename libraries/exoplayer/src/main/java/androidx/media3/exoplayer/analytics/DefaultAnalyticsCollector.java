@@ -486,6 +486,16 @@ public class DefaultAnalyticsCollector implements AnalyticsCollector {
         listener -> listener.onDownstreamFormatChanged(eventTime, mediaLoadData));
   }
 
+  @Override
+  public final void onCurrentBitrateAvailable(
+          int windowIndex, @Nullable MediaPeriodId mediaPeriodId, long timeUs, int bitrate) {
+    EventTime eventTime = generateMediaPeriodEventTimeWithTime(windowIndex, mediaPeriodId, timeUs / 1000L);
+    sendEvent(
+            eventTime,
+            AnalyticsListener.EVENT_CURRENT_BITRATE_AVAILABLE,
+            listener -> listener.onCurrentBitrateAvailable(eventTime, bitrate));
+  }
+
   // Player.Listener implementation.
 
   // TODO: Use Player.Listener.onEvents to know when a set of simultaneous callbacks finished.
@@ -915,13 +925,13 @@ public class DefaultAnalyticsCollector implements AnalyticsCollector {
 
   /** Generates an {@link EventTime} for the currently playing item in the player. */
   protected final EventTime generateCurrentPlayerMediaPeriodEventTime() {
-    return generateEventTime(mediaPeriodQueueTracker.getCurrentPlayerMediaPeriod());
+    return generateEventTime(mediaPeriodQueueTracker.getCurrentPlayerMediaPeriod(), -1);
   }
 
   /** Returns a new {@link EventTime} for the specified timeline, window and media period id. */
   @RequiresNonNull("player")
   protected final EventTime generateEventTime(
-      Timeline timeline, int windowIndex, @Nullable MediaPeriodId mediaPeriodId) {
+      Timeline timeline, int windowIndex, @Nullable MediaPeriodId mediaPeriodId, long timeMs) {
     if (timeline.isEmpty()) {
       // Ensure media period id is only reported together with a valid timeline.
       mediaPeriodId = null;
@@ -931,7 +941,9 @@ public class DefaultAnalyticsCollector implements AnalyticsCollector {
     boolean isInCurrentWindow =
         timeline.equals(player.getCurrentTimeline())
             && windowIndex == player.getCurrentMediaItemIndex();
-    if (mediaPeriodId != null && mediaPeriodId.isAd()) {
+    if (timeMs != -1) {
+      eventPositionMs = timeMs;
+    } else if (mediaPeriodId != null && mediaPeriodId.isAd()) {
       boolean isCurrentAd =
           isInCurrentWindow
               && player.getCurrentAdGroupIndex() == mediaPeriodId.adGroupIndex
@@ -970,7 +982,7 @@ public class DefaultAnalyticsCollector implements AnalyticsCollector {
     listeners.release();
   }
 
-  private EventTime generateEventTime(@Nullable MediaPeriodId mediaPeriodId) {
+  private EventTime generateEventTime(@Nullable MediaPeriodId mediaPeriodId, long timeMs) {
     checkNotNull(player);
     @Nullable
     Timeline knownTimeline =
@@ -982,22 +994,22 @@ public class DefaultAnalyticsCollector implements AnalyticsCollector {
       Timeline timeline = player.getCurrentTimeline();
       boolean windowIsInTimeline = windowIndex < timeline.getWindowCount();
       return generateEventTime(
-          windowIsInTimeline ? timeline : Timeline.EMPTY, windowIndex, /* mediaPeriodId= */ null);
+          windowIsInTimeline ? timeline : Timeline.EMPTY, windowIndex, /* mediaPeriodId= */ null, timeMs);
     }
     int windowIndex = knownTimeline.getPeriodByUid(mediaPeriodId.periodUid, period).windowIndex;
-    return generateEventTime(knownTimeline, windowIndex, mediaPeriodId);
+    return generateEventTime(knownTimeline, windowIndex, mediaPeriodId, timeMs);
   }
 
   private EventTime generatePlayingMediaPeriodEventTime() {
-    return generateEventTime(mediaPeriodQueueTracker.getPlayingMediaPeriod());
+    return generateEventTime(mediaPeriodQueueTracker.getPlayingMediaPeriod(), -1);
   }
 
   private EventTime generateReadingMediaPeriodEventTime() {
-    return generateEventTime(mediaPeriodQueueTracker.getReadingMediaPeriod());
+    return generateEventTime(mediaPeriodQueueTracker.getReadingMediaPeriod(), -1);
   }
 
   private EventTime generateLoadingMediaPeriodEventTime() {
-    return generateEventTime(mediaPeriodQueueTracker.getLoadingMediaPeriod());
+    return generateEventTime(mediaPeriodQueueTracker.getLoadingMediaPeriod(), -1);
   }
 
   private EventTime generateMediaPeriodEventTime(
@@ -1007,20 +1019,36 @@ public class DefaultAnalyticsCollector implements AnalyticsCollector {
       boolean isInKnownTimeline =
           mediaPeriodQueueTracker.getMediaPeriodIdTimeline(mediaPeriodId) != null;
       return isInKnownTimeline
-          ? generateEventTime(mediaPeriodId)
-          : generateEventTime(Timeline.EMPTY, windowIndex, mediaPeriodId);
+          ? generateEventTime(mediaPeriodId, -1)
+          : generateEventTime(Timeline.EMPTY, windowIndex, mediaPeriodId, -1);
     }
     Timeline timeline = player.getCurrentTimeline();
     boolean windowIsInTimeline = windowIndex < timeline.getWindowCount();
     return generateEventTime(
-        windowIsInTimeline ? timeline : Timeline.EMPTY, windowIndex, /* mediaPeriodId= */ null);
+        windowIsInTimeline ? timeline : Timeline.EMPTY, windowIndex, /* mediaPeriodId= */ null, -1);
+  }
+
+  private EventTime generateMediaPeriodEventTimeWithTime(
+          int windowIndex, @Nullable MediaPeriodId mediaPeriodId, long timeMs) {
+    checkNotNull(player);
+    if (mediaPeriodId != null) {
+      boolean isInKnownTimeline =
+              mediaPeriodQueueTracker.getMediaPeriodIdTimeline(mediaPeriodId) != null;
+      return isInKnownTimeline
+              ? generateEventTime(mediaPeriodId, timeMs)
+              : generateEventTime(Timeline.EMPTY, windowIndex, mediaPeriodId, timeMs);
+    }
+    Timeline timeline = player.getCurrentTimeline();
+    boolean windowIsInTimeline = windowIndex < timeline.getWindowCount();
+    return generateEventTime(
+            windowIsInTimeline ? timeline : Timeline.EMPTY, windowIndex, /* mediaPeriodId= */ null, timeMs);
   }
 
   private EventTime getEventTimeForErrorEvent(@Nullable PlaybackException error) {
     if (error instanceof ExoPlaybackException) {
       ExoPlaybackException exoError = (ExoPlaybackException) error;
       if (exoError.mediaPeriodId != null) {
-        return generateEventTime(exoError.mediaPeriodId);
+        return generateEventTime(exoError.mediaPeriodId, -1);
       }
     }
     return generateCurrentPlayerMediaPeriodEventTime();

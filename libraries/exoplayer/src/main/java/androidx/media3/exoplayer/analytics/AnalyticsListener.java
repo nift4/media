@@ -235,7 +235,8 @@ public interface AnalyticsListener {
     EVENT_VIDEO_CODEC_ERROR,
     EVENT_AUDIO_TRACK_INITIALIZED,
     EVENT_AUDIO_TRACK_RELEASED,
-    EVENT_RENDERER_READY_CHANGED
+    EVENT_RENDERER_READY_CHANGED,
+    EVENT_CURRENT_BITRATE_AVAILABLE
   })
   @interface EventFlags {}
 
@@ -450,6 +451,8 @@ public interface AnalyticsListener {
 
   /** Seeks have been dropped when scrubbing. */
   @UnstableApi int EVENT_DROPPED_SEEKS_WHILE_SCRUBBING = 1034;
+
+  @UnstableApi int EVENT_CURRENT_BITRATE_AVAILABLE = 1337;
 
   /** Time information of an event. */
   @UnstableApi
@@ -925,6 +928,9 @@ public interface AnalyticsListener {
    */
   @UnstableApi
   default void onDownstreamFormatChanged(EventTime eventTime, MediaLoadData mediaLoadData) {}
+
+  @UnstableApi
+  default void onCurrentBitrateAvailable(EventTime eventTime, int bitrate) {}
 
   /**
    * Called when data is removed from the back of a media buffer, typically so that it can be
