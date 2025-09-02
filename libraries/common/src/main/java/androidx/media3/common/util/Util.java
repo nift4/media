@@ -2273,6 +2273,10 @@ public final class Util {
         return byteOrder.equals(LITTLE_ENDIAN)
             ? C.ENCODING_PCM_16BIT
             : C.ENCODING_PCM_16BIT_BIG_ENDIAN;
+      case 20:
+        return byteOrder.equals(LITTLE_ENDIAN)
+            ? C.ENCODING_PCM_20BIT
+            : C.ENCODING_PCM_20BIT_BIG_ENDIAN;
       case 24:
         return byteOrder.equals(LITTLE_ENDIAN)
             ? C.ENCODING_PCM_24BIT
@@ -2297,6 +2301,8 @@ public final class Util {
     return encoding == C.ENCODING_PCM_8BIT
         || encoding == C.ENCODING_PCM_16BIT
         || encoding == C.ENCODING_PCM_16BIT_BIG_ENDIAN
+        || encoding == C.ENCODING_PCM_20BIT
+        || encoding == C.ENCODING_PCM_20BIT_BIG_ENDIAN
         || encoding == C.ENCODING_PCM_24BIT
         || encoding == C.ENCODING_PCM_24BIT_BIG_ENDIAN
         || encoding == C.ENCODING_PCM_32BIT
@@ -2313,7 +2319,9 @@ public final class Util {
    */
   @UnstableApi
   public static boolean isEncodingHighResolutionPcm(@C.PcmEncoding int encoding) {
-    return encoding == C.ENCODING_PCM_24BIT
+    return encoding == C.ENCODING_PCM_20BIT
+        || encoding == C.ENCODING_PCM_20BIT_BIG_ENDIAN
+        || encoding == C.ENCODING_PCM_24BIT
         || encoding == C.ENCODING_PCM_24BIT_BIG_ENDIAN
         || encoding == C.ENCODING_PCM_32BIT
         || encoding == C.ENCODING_PCM_32BIT_BIG_ENDIAN
@@ -2333,6 +2341,7 @@ public final class Util {
   public static int[] getClosestPlatformPcmEncodings(@C.PcmEncoding int encoding) {
     switch (encoding) {
       case C.ENCODING_PCM_FLOAT:
+      case C.ENCODING_PCM_DOUBLE:
         return Build.VERSION.SDK_INT >= 31
             ? new int[] {
               AudioFormat.ENCODING_PCM_FLOAT,
@@ -2349,6 +2358,8 @@ public final class Util {
               AudioFormat.ENCODING_PCM_24BIT_PACKED
             }
             : new int[] {AudioFormat.ENCODING_PCM_FLOAT};
+      case C.ENCODING_PCM_20BIT:
+      case C.ENCODING_PCM_20BIT_BIG_ENDIAN:
       case C.ENCODING_PCM_24BIT:
       case C.ENCODING_PCM_24BIT_BIG_ENDIAN:
         return Build.VERSION.SDK_INT >= 31
@@ -2549,6 +2560,9 @@ public final class Util {
         return 4;
       case C.ENCODING_PCM_DOUBLE:
         return 8;
+      case C.ENCODING_PCM_20BIT:
+      case C.ENCODING_PCM_20BIT_BIG_ENDIAN:
+        throw new IllegalArgumentException("20-bit PCM is not a multiple of bytes");
       case C.ENCODING_INVALID:
       case Format.NO_VALUE:
       default:
