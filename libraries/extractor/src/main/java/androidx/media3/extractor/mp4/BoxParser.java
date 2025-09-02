@@ -2120,6 +2120,8 @@ public final class BoxParser {
           pcmEncoding = C.ENCODING_PCM_8BIT;
         } else if (bitsPerSample == 16) {
           pcmEncoding = isBigEndian ? C.ENCODING_PCM_16BIT_BIG_ENDIAN : C.ENCODING_PCM_16BIT;
+        } else if (bitsPerSample == 20) {
+          pcmEncoding = isBigEndian ? C.ENCODING_PCM_20BIT_BIG_ENDIAN : C.ENCODING_PCM_20BIT;
         } else if (bitsPerSample == 24) {
           pcmEncoding = isBigEndian ? C.ENCODING_PCM_24BIT_BIG_ENDIAN : C.ENCODING_PCM_24BIT;
         } else if (bitsPerSample == 32) {

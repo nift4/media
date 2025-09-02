@@ -502,7 +502,9 @@ public final class MediaFormatUtil {
         mediaFormatPcmEncoding = AudioFormat.ENCODING_INVALID;
         break;
       case Format.NO_VALUE:
+      case C.ENCODING_PCM_20BIT:
       case C.ENCODING_PCM_16BIT_BIG_ENDIAN:
+      case C.ENCODING_PCM_20BIT_BIG_ENDIAN:
       case C.ENCODING_PCM_24BIT_BIG_ENDIAN:
       case C.ENCODING_PCM_32BIT_BIG_ENDIAN:
       case C.ENCODING_PCM_DOUBLE:

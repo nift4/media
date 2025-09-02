@@ -47,7 +47,8 @@ public final class ToFloatPcmAudioProcessor extends BaseAudioProcessor {
   public AudioFormat onConfigure(AudioFormat inputAudioFormat)
       throws UnhandledAudioFormatException {
     @C.PcmEncoding int encoding = inputAudioFormat.encoding;
-    if (!Util.isEncodingHighResolutionPcm(encoding) && encoding != C.ENCODING_PCM_16BIT) {
+    if ((!Util.isEncodingHighResolutionPcm(encoding) || encoding == C.ENCODING_PCM_20BIT
+            || encoding == C.ENCODING_PCM_20BIT_BIG_ENDIAN) && encoding != C.ENCODING_PCM_16BIT) {
       throw new UnhandledAudioFormatException(inputAudioFormat);
     }
     return encoding != C.ENCODING_PCM_FLOAT

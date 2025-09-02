@@ -183,6 +183,8 @@ public final class C {
     ENCODING_PCM_8BIT,
     ENCODING_PCM_16BIT,
     ENCODING_PCM_16BIT_BIG_ENDIAN,
+    ENCODING_PCM_20BIT,
+    ENCODING_PCM_20BIT_BIG_ENDIAN,
     ENCODING_PCM_24BIT,
     ENCODING_PCM_24BIT_BIG_ENDIAN,
     ENCODING_PCM_32BIT,
@@ -226,6 +228,8 @@ public final class C {
     ENCODING_PCM_8BIT,
     ENCODING_PCM_16BIT,
     ENCODING_PCM_16BIT_BIG_ENDIAN,
+    ENCODING_PCM_20BIT,
+    ENCODING_PCM_20BIT_BIG_ENDIAN,
     ENCODING_PCM_24BIT,
     ENCODING_PCM_24BIT_BIG_ENDIAN,
     ENCODING_PCM_32BIT,
@@ -246,6 +250,12 @@ public final class C {
 
   /** Like {@link #ENCODING_PCM_16BIT}, but with the bytes in big endian order. */
   @UnstableApi public static final int ENCODING_PCM_16BIT_BIG_ENDIAN = 0x10000000;
+
+  /** PCM encoding with 20 bits per sample. */
+  @UnstableApi public static final int ENCODING_PCM_20BIT = 0x80000000;
+
+  /** Like {@link #ENCODING_PCM_20BIT} but with the bytes in big endian order. */
+  @UnstableApi public static final int ENCODING_PCM_20BIT_BIG_ENDIAN = 0x90000000;
 
   /** PCM encoding with 24 bits per sample. */
   @UnstableApi public static final int ENCODING_PCM_24BIT = AudioFormat.ENCODING_PCM_24BIT_PACKED;

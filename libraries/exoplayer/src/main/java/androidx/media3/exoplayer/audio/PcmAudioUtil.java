@@ -108,6 +108,8 @@ public final class PcmAudioUtil {
         } else {
           return (int) (doubleValue * Integer.MAX_VALUE);
         }
+      case C.ENCODING_PCM_20BIT:
+      case C.ENCODING_PCM_20BIT_BIG_ENDIAN:
       default:
         throw new IllegalStateException();
     }
@@ -170,6 +172,8 @@ public final class PcmAudioUtil {
           buffer.putDouble((double) pcm32bit / Integer.MAX_VALUE);
         }
         return;
+      case C.ENCODING_PCM_20BIT:
+      case C.ENCODING_PCM_20BIT_BIG_ENDIAN:
       default:
         throw new IllegalStateException();
     }
