@@ -2540,6 +2540,8 @@ public final class Util {
   /**
    * Returns the byte depth for audio with the specified encoding.
    *
+   * <p>Throws {@link IllegalArgumentException} if the encoding is not a multiple of bytes.
+   *
    * @param pcmEncoding The encoding of the audio data.
    * @return The byte depth of the audio.
    */
@@ -2567,6 +2569,25 @@ public final class Util {
       case Format.NO_VALUE:
       default:
         throw new IllegalArgumentException();
+    }
+  }
+
+  /**
+   * Returns the bit depth for audio with the specified encoding.
+   *
+   * @param pcmEncoding The encoding of the audio data.
+   * @return The bit depth of the audio.
+   */
+  @UnstableApi
+  public static int getBitDepth(@C.PcmEncoding int pcmEncoding) {
+    // This is a separate method in order to be able to expose the bit depth of encodings that are
+    // not multiples of bytes.
+    switch (pcmEncoding) {
+      case C.ENCODING_PCM_20BIT:
+      case C.ENCODING_PCM_20BIT_BIG_ENDIAN:
+        return 20;
+      default:
+        return getByteDepth(pcmEncoding) * C.BITS_PER_BYTE;
     }
   }
 

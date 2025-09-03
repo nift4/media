@@ -68,7 +68,7 @@ public final class IamfDecoder
     int status =
         iamfConfigDecoder(
             this.initializationData,
-            Util.getByteDepth(OUTPUT_PCM_ENCODING) * C.BITS_PER_BYTE,
+            Util.getBitDepth(OUTPUT_PCM_ENCODING),
             OUTPUT_SAMPLE_RATE,
             soundSystem,
             nativeDecoderPointer);
@@ -120,7 +120,7 @@ public final class IamfDecoder
       nativeDecoderPointer = iamfOpen();
       iamfConfigDecoder(
           initializationData,
-          Util.getByteDepth(OUTPUT_PCM_ENCODING) * C.BITS_PER_BYTE,
+          Util.getBitDepth(OUTPUT_PCM_ENCODING),
           OUTPUT_SAMPLE_RATE,
           soundSystem,
           nativeDecoderPointer); // reconfigure
