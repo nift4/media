@@ -66,6 +66,8 @@
         specified `playerName`. The `DefaultLoadControl` can now make decisions
         of each player separately based on its own allocated bytes and target
         buffer bytes.
+    *   Add `SkipInfo` to the `AdPlaybackState.AdGroup` to carry skip
+        information for each ad in the ad group.
 *   Transformer:
     *   Add support for `COMMAND_SET_AUDIO_ATTRIBUTES` and audio focus handling
         in `CompositionPlayer`.
@@ -192,6 +194,8 @@
 *   RTMP extension:
 *   HLS extension:
     *   Parse HLS interstitial skip attributes.
+    *   Map skip control attributes from the HLS playlist and the asset list
+        document into the `AdPlaybackState` for public access.
 *   DASH extension:
     *   Reset `LiveConfiguration` to the value provided by the `MediaItem` of
         the `DashMediaSource` when released and when the media item is updated
