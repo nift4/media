@@ -201,6 +201,9 @@
     *   Parse HLS interstitial skip attributes.
     *   Map skip control attributes from the HLS playlist and the asset list
         document into the `AdPlaybackState` for public access.
+    *   Fix bug where the start time of the playlist was dropped when the
+        EXT-X-PROGRAM-START-DATE tag defining the start time was removed from a
+        playlist ([#2760](https://github.com/androidx/media/issues/2760)).
 *   DASH extension:
     *   Reset `LiveConfiguration` to the value provided by the `MediaItem` of
         the `DashMediaSource` when released and when the media item is updated
