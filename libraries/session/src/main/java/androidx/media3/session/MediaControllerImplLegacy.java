@@ -535,6 +535,11 @@ import org.checkerframework.checker.initialization.qual.UnderInitialization;
   }
 
   @Override
+  public int getAudioSessionId() {
+    return controllerInfo.playerInfo.audioSessionId;
+  }
+
+  @Override
   public ListenableFuture<SessionResult> setRating(String mediaId, Rating rating) {
     @Nullable
     String currentMediaItemMediaId =
@@ -1769,6 +1774,13 @@ import org.checkerframework.checker.initialization.qual.UnderInitialization;
           (listener) ->
               listener.onAudioAttributesChanged(newControllerInfo.playerInfo.audioAttributes));
     }
+    if (oldControllerInfo.playerInfo.audioSessionId
+        != newControllerInfo.playerInfo.audioSessionId) {
+      listeners.queueEvent(
+          Player.EVENT_AUDIO_SESSION_ID,
+          (listener) ->
+              listener.onAudioSessionIdChanged(newControllerInfo.playerInfo.audioSessionId));
+    }
     if (!oldControllerInfo.playerInfo.deviceInfo.equals(newControllerInfo.playerInfo.deviceInfo)) {
       listeners.queueEvent(
           Player.EVENT_DEVICE_INFO_CHANGED,
@@ -2421,6 +2433,7 @@ import org.checkerframework.checker.initialization.qual.UnderInitialization;
             /* volume= */ 1.0f,
             /* unmuteVolume= */ 1.0f,
             /* audioAttributes= */ audioAttributes,
+            /* audioSessionId= */ C.AUDIO_SESSION_ID_UNSET,
             /* cueGroup= */ CueGroup.EMPTY_TIME_ZERO,
             /* deviceInfo= */ deviceInfo,
             /* deviceVolume= */ deviceVolume,
