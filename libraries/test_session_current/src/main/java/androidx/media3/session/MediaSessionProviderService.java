@@ -507,15 +507,6 @@ public class MediaSessionProviderService extends Service {
                         directExecutor());
                     return immediateFuture(new SessionResult(SessionResult.RESULT_SUCCESS));
                   }
-
-                  @Override
-                  public ListenableFuture<List<MediaItem>> onAddMediaItems(
-                      MediaSession mediaSession,
-                      ControllerInfo controller,
-                      List<MediaItem> mediaItems) {
-                    // Implement this to avoid confusing stack traces in the logs of unit tests.
-                    return Futures.immediateFuture(mediaItems);
-                  }
                 });
             break;
           }
@@ -1245,8 +1236,7 @@ public class MediaSessionProviderService extends Service {
             List<MediaItem> mediaItems = new ArrayList<>();
             for (int windowIndex = 0; windowIndex < windowCount; windowIndex++) {
               mediaItems.add(
-                  MediaTestUtils.createMediaItem(
-                      TestUtils.getMediaIdInFakeTimeline(windowIndex), /* buildWithUri= */ true));
+                  MediaTestUtils.createMediaItem(TestUtils.getMediaIdInFakeTimeline(windowIndex)));
             }
             player.mediaItems.clear();
             player.mediaItems.addAll(mediaItems);
@@ -1304,28 +1294,6 @@ public class MediaSessionProviderService extends Service {
             MediaSession session = sessionMap.get(sessionId);
             MockPlayer player = (MockPlayer) session.getPlayer();
             player.currentMediaItemIndex = index;
-          });
-    }
-
-    @Override
-    public void setCurrentMediaItemIndexAndPeriodIndex(
-        String sessionId, int mediaItemIndex, int periodIndex) throws RemoteException {
-      runOnHandler(
-          () -> {
-            MediaSession session = sessionMap.get(sessionId);
-            MockPlayer player = (MockPlayer) session.getPlayer();
-            player.currentMediaItemIndex = mediaItemIndex;
-            player.currentPeriodIndex = periodIndex;
-          });
-    }
-
-    @Override
-    public void setCurrentPeriodIndex(String sessionId, int index) throws RemoteException {
-      runOnHandler(
-          () -> {
-            MediaSession session = sessionMap.get(sessionId);
-            MockPlayer player = (MockPlayer) session.getPlayer();
-            player.currentPeriodIndex = index;
           });
     }
 
