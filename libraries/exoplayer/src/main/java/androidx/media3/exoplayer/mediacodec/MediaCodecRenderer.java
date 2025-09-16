@@ -754,6 +754,11 @@ public abstract class MediaCodecRenderer extends BaseRenderer {
   protected void onPositionReset(
       long positionUs, boolean joining, boolean sampleStreamIsResetToKeyFrame)
       throws ExoPlaybackException {
+    if (!pendingOutputStreamChanges.isEmpty()) {
+      // Update current outputStreamInfo to represent current stream provided by sample queue.
+      outputStreamInfo = pendingOutputStreamChanges.getLast();
+    }
+    pendingOutputStreamChanges.clear();
     if (!sampleStreamIsResetToKeyFrame) {
       // onPositionReset is not resetting the sample stream and so codec-related state will not
       // be reset.
@@ -774,7 +779,6 @@ public abstract class MediaCodecRenderer extends BaseRenderer {
       waitingForFirstSampleInFormat = true;
     }
     outputStreamInfo.formatQueue.clear();
-    pendingOutputStreamChanges.clear();
   }
 
   @Override
@@ -1026,7 +1030,7 @@ public abstract class MediaCodecRenderer extends BaseRenderer {
   /** Resets the renderer internal state used by both bypass and codec modes. */
   private void resetCommonStateForFlush() {
     largestQueuedPresentationTimeUs = C.TIME_UNSET;
-    outputStreamInfo.lastBufferTimeUs = C.TIME_UNSET;
+    getLastOutputStreamInfo().lastBufferTimeUs = C.TIME_UNSET;
     lastProcessedOutputBufferTimeUs = C.TIME_UNSET;
   }
 
