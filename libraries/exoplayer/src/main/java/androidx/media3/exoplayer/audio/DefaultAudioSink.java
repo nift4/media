@@ -44,6 +44,7 @@ import androidx.annotation.GuardedBy;
 import androidx.annotation.IntDef;
 import androidx.annotation.Nullable;
 import androidx.annotation.RequiresApi;
+import androidx.core.util.Supplier;
 import androidx.media3.common.AudioAttributes;
 import androidx.media3.common.AuxEffectInfo;
 import androidx.media3.common.C;
@@ -58,6 +59,7 @@ import androidx.media3.common.audio.ToInt16PcmAudioProcessor;
 import androidx.media3.common.util.BackgroundExecutor;
 import androidx.media3.common.util.Clock;
 import androidx.media3.common.util.Log;
+import androidx.media3.common.util.NullableType;
 import androidx.media3.common.util.UnstableApi;
 import androidx.media3.common.util.Util;
 import androidx.media3.exoplayer.ExoPlayer.AudioOffloadListener;
@@ -631,7 +633,7 @@ public final class DefaultAudioSink implements AudioSink {
   @Nullable private AudioTrack audioTrack;
   private @MonotonicNonNull AudioCapabilities audioCapabilities;
   private @MonotonicNonNull AudioCapabilitiesReceiver audioCapabilitiesReceiver;
-  @Nullable private OnRoutingChangedListenerApi24 onRoutingChangedListener;
+  @Nullable private OnRoutingChangedListenerBase onRoutingChangedListener;
 
   private AudioAttributes audioAttributes;
   @Nullable private MediaPositionParameters afterDrainParameters;
@@ -996,7 +998,10 @@ public final class DefaultAudioSink implements AudioSink {
     }
     if (SDK_INT >= 24 && audioCapabilitiesReceiver != null) {
       onRoutingChangedListener =
-          new OnRoutingChangedListenerApi24(audioTrack, audioCapabilitiesReceiver);
+          new OnRoutingChangedListenerApi24(audioTrack, audioCapabilitiesReceiver, () -> listener);
+    } else if (SDK_INT >= 23 && audioCapabilitiesReceiver != null) {
+      onRoutingChangedListener =
+          new OnRoutingChangedListenerApi23(audioTrack, audioCapabilitiesReceiver, () -> listener);
     }
     startMediaTimeUsNeedsInit = true;
 
@@ -2170,31 +2175,39 @@ public final class DefaultAudioSink implements AudioSink {
         : C.INDEX_UNSET;
   }
 
-  @RequiresApi(24)
-  private static final class OnRoutingChangedListenerApi24 {
+  private interface OnRoutingChangedListenerBase {
+    void release();
+  }
+
+  @RequiresApi(23)
+  private static final class OnRoutingChangedListenerApi23 implements OnRoutingChangedListenerBase {
 
     private final AudioTrack audioTrack;
     private final AudioCapabilitiesReceiver capabilitiesReceiver;
     private final Handler playbackThreadHandler;
 
-    @Nullable private OnRoutingChangedListener listener;
+    @Nullable private Supplier<AudioSink.@NullableType Listener> listener1;
+    @Nullable private AudioTrack.OnRoutingChangedListener listener;
 
-    public OnRoutingChangedListenerApi24(
-        AudioTrack audioTrack, AudioCapabilitiesReceiver capabilitiesReceiver) {
+    public OnRoutingChangedListenerApi23(
+            AudioTrack audioTrack, AudioCapabilitiesReceiver capabilitiesReceiver, Supplier<@NullableType Listener> listener1) {
       this.audioTrack = audioTrack;
       this.capabilitiesReceiver = capabilitiesReceiver;
       this.listener = this::onRoutingChanged;
+      this.listener1 = listener1;
       playbackThreadHandler = new Handler(Looper.myLooper());
       audioTrack.addOnRoutingChangedListener(listener, playbackThreadHandler);
     }
 
+    @Override
     public void release() {
       audioTrack.removeOnRoutingChangedListener(checkNotNull(listener));
       listener = null;
+      listener1 = null;
     }
 
-    private void onRoutingChanged(AudioRouting router) {
-      if (listener == null) {
+    private void onRoutingChanged(AudioTrack router) {
+      if (listener == null || listener1 == null) {
         // Stale event.
         return;
       }
@@ -2205,14 +2218,72 @@ public final class DefaultAudioSink implements AudioSink {
                 if (routedDevice != null) {
                   playbackThreadHandler.post(
                       () -> {
-                        if (listener == null) {
+                        if (listener == null || listener1 == null) {
                           // Stale event.
                           return;
+                        }
+                        @Nullable AudioSink.Listener listener2 = listener1.get();
+                        if (listener2 != null) {
+                          listener2.onRoutingChanged(router, routedDevice);
                         }
                         capabilitiesReceiver.setRoutedDevice(routedDevice);
                       });
                 }
               });
+    }
+  }
+
+  @RequiresApi(24)
+  private static final class OnRoutingChangedListenerApi24 implements OnRoutingChangedListenerBase {
+
+    private final AudioTrack audioTrack;
+    private final AudioCapabilitiesReceiver capabilitiesReceiver;
+    private final Handler playbackThreadHandler;
+
+    @Nullable private Supplier<AudioSink.@NullableType Listener> listener1;
+    @Nullable private OnRoutingChangedListener listener;
+
+    public OnRoutingChangedListenerApi24(
+        AudioTrack audioTrack, AudioCapabilitiesReceiver capabilitiesReceiver, Supplier<@NullableType Listener> listener1) {
+      this.audioTrack = audioTrack;
+      this.capabilitiesReceiver = capabilitiesReceiver;
+      this.listener = this::onRoutingChanged;
+      this.listener1 = listener1;
+      playbackThreadHandler = new Handler(Looper.myLooper());
+      audioTrack.addOnRoutingChangedListener(listener, playbackThreadHandler);
+    }
+
+    @Override
+    public void release() {
+      audioTrack.removeOnRoutingChangedListener(checkNotNull(listener));
+      listener = null;
+      listener1 = null;
+    }
+
+    private void onRoutingChanged(AudioRouting router) {
+      if (listener == null || listener1 == null) {
+        // Stale event.
+        return;
+      }
+      BackgroundExecutor.get()
+              .execute(
+                      () -> {
+                        @Nullable AudioDeviceInfo routedDevice = router.getRoutedDevice();
+                        if (routedDevice != null) {
+                          playbackThreadHandler.post(
+                                  () -> {
+                                    if (listener == null || listener1 == null) {
+                                      // Stale event.
+                                      return;
+                                    }
+                                    @Nullable AudioSink.Listener listener2 = listener1.get();
+                                    if (listener2 != null) {
+                                      listener2.onRoutingChanged((AudioTrack) router, routedDevice);
+                                    }
+                                    capabilitiesReceiver.setRoutedDevice(routedDevice);
+                                  });
+                        }
+                      });
     }
   }
 
