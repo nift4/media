@@ -18,6 +18,7 @@ package androidx.media3.exoplayer.audio;
 import static java.lang.annotation.ElementType.TYPE_USE;
 
 import android.media.AudioDeviceInfo;
+import android.media.AudioRouting;
 import android.media.AudioTrack;
 import androidx.annotation.IntDef;
 import androidx.annotation.Nullable;
@@ -165,6 +166,8 @@ public interface AudioSink {
      * @param audioSessionId The new audio session ID.
      */
     default void onAudioSessionIdChanged(int audioSessionId) {}
+
+    default void onRoutingChanged(AudioTrack router, @Nullable AudioDeviceInfo routedDevice) {}
   }
 
   /** Configuration parameters used for an {@link AudioTrack}. */
