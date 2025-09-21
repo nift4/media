@@ -144,9 +144,6 @@ public interface MediaSourceEventListener {
   default void onDownstreamFormatChanged(
       int windowIndex, @Nullable MediaPeriodId mediaPeriodId, MediaLoadData mediaLoadData) {}
 
-  default void onCurrentBitrateAvailable(int windowIndex, @Nullable MediaPeriodId mediaPeriodId,
-                                       long timeUs, int bitrate) {}
-
   /** Dispatches events to {@link MediaSourceEventListener MediaSourceEventListeners}. */
   class EventDispatcher {
 
@@ -510,12 +507,6 @@ public interface MediaSourceEventListener {
       dispatchEvent(
           (listener) ->
               listener.onDownstreamFormatChanged(windowIndex, mediaPeriodId, mediaLoadData));
-    }
-
-    public void currentBitrateAvailable(long timeUs, int bitrate) {
-      dispatchEvent(
-          (listener) ->
-              listener.onCurrentBitrateAvailable(windowIndex, mediaPeriodId, timeUs, bitrate));
     }
 
     /** Dispatches to a function that supplies a {@link MediaSourceEventListener}. */
