@@ -18,7 +18,7 @@ package androidx.media3.demo.session
 import android.content.ComponentName
 import android.content.Context
 import android.os.Bundle
-import android.util.Log
+import androidx.media3.common.util.Log
 import android.view.LayoutInflater
 import android.view.Menu
 import android.view.View

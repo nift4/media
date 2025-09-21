@@ -49,7 +49,7 @@ import android.os.RemoteException;
 import android.os.ResultReceiver;
 import android.os.SystemClock;
 import android.text.TextUtils;
-import android.util.Log;
+import androidx.media3.common.util.Log;
 import android.view.KeyEvent;
 import android.view.ViewConfiguration;
 import androidx.annotation.GuardedBy;

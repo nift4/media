@@ -39,7 +39,7 @@ import android.os.Message;
 import android.os.RemoteException;
 import android.os.ResultReceiver;
 import android.text.TextUtils;
-import android.util.Log;
+import androidx.media3.common.util.Log;
 import android.view.KeyEvent;
 import androidx.annotation.GuardedBy;
 import androidx.annotation.Nullable;

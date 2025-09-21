@@ -22,7 +22,7 @@ import android.content.Context;
 import android.opengl.GLES20;
 import android.opengl.GLSurfaceView;
 import android.util.AttributeSet;
-import android.util.Log;
+import androidx.media3.common.util.Log;
 import androidx.annotation.Nullable;
 import androidx.media3.common.util.GlProgram;
 import androidx.media3.common.util.GlUtil;
