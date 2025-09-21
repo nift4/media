@@ -65,7 +65,7 @@ import android.os.Process;
 import android.os.RemoteException;
 import android.support.v4.os.ResultReceiver;
 import android.text.TextUtils;
-import android.util.Log;
+import androidx.media3.common.util.Log;
 import androidx.annotation.IntDef;
 import androidx.annotation.Nullable;
 import androidx.annotation.RequiresApi;
@@ -108,7 +108,6 @@ import java.util.List;
 @RestrictTo(LIBRARY)
 public final class MediaBrowserCompat {
   static final String TAG = "MediaBrowserCompat";
-  static final boolean DEBUG = Log.isLoggable(TAG, Log.DEBUG);
 
   /**
    * Used as an int extra field to denote the page number to subscribe. The value of {@code
@@ -1222,9 +1221,7 @@ public final class MediaBrowserCompat {
       // Check that the subscription is still subscribed.
       Subscription subscription = parentId == null ? null : subscriptions.get(parentId);
       if (subscription == null) {
-        if (DEBUG) {
-          Log.d(TAG, "onLoadChildren for id that isn't subscribed id=" + parentId);
-        }
+        Log.d(TAG, "onLoadChildren for id that isn't subscribed id=" + parentId);
         return;
       }
 

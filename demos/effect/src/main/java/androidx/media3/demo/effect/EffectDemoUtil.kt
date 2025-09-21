@@ -18,7 +18,7 @@ package androidx.media3.demo.effect
 import android.content.Context
 import android.net.Uri
 import android.util.JsonReader
-import android.util.Log
+import androidx.media3.common.util.Log
 import androidx.media3.common.MediaItem
 import java.io.IOException
 import java.io.InputStreamReader

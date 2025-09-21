@@ -16,7 +16,7 @@
 package androidx.media3.demo.shortform.viewpager
 
 import android.os.Bundle
-import android.util.Log
+import androidx.media3.common.util.Log
 import androidx.appcompat.app.AppCompatActivity
 import androidx.media3.demo.shortform.MainActivity
 import androidx.media3.demo.shortform.MediaItemDatabase

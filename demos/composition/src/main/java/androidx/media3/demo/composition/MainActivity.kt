@@ -17,7 +17,7 @@ package androidx.media3.demo.composition
 
 import android.content.Intent
 import android.os.Bundle
-import android.util.Log
+import androidx.media3.common.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
