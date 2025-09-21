@@ -1739,7 +1739,7 @@ public abstract class MediaCodecRenderer extends BaseRenderer {
           DISCARD_REASON_DRM_SESSION_CHANGED);
     }
     boolean drainAndUpdateCodecDrmSession = sourceDrmSession != codecDrmSession;
-    Assertions.checkState(!drainAndUpdateCodecDrmSession || SDK_INT >= 23);
+    checkState(!drainAndUpdateCodecDrmSession || SDK_INT >= 23);
 
     DecoderReuseEvaluation evaluation = canReuseCodec(codecInfo, oldFormat, newFormat);
     @DecoderDiscardReasons int overridingDiscardReasons = 0;
