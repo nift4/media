@@ -19,7 +19,6 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
 
 import android.os.Handler;
-
 import androidx.annotation.CallSuper;
 import androidx.annotation.Nullable;
 import androidx.media3.common.Timeline;
@@ -308,18 +307,6 @@ public abstract class CompositeMediaSource<T> extends BaseMediaSource {
       if (maybeUpdateEventDispatcher(windowIndex, mediaPeriodId)) {
         mediaSourceEventDispatcher.downstreamFormatChanged(
             maybeUpdateMediaLoadData(mediaLoadData, mediaPeriodId));
-      }
-    }
-
-    @Override
-    public void onCurrentBitrateAvailable(
-            int windowIndex,
-            @Nullable MediaSource.MediaPeriodId mediaPeriodId,
-            long timeUs,
-            int bitrate) {
-      if (maybeUpdateEventDispatcher(windowIndex, mediaPeriodId)) {
-        // TODO: do we need to change timeUs?
-        mediaSourceEventDispatcher.currentBitrateAvailable(timeUs, bitrate);
       }
     }
 

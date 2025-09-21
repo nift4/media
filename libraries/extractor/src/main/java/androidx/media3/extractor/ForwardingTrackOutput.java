@@ -77,9 +77,4 @@ public class ForwardingTrackOutput implements TrackOutput {
       @Nullable CryptoData cryptoData) {
     trackOutput.sampleMetadata(timeUs, flags, size, offset, cryptoData);
   }
-
-  @Override
-  public void sampleBitrate(long timeUs, int bitrate) {
-    trackOutput.sampleBitrate(timeUs, bitrate);
-  }
 }
