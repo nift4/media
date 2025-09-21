@@ -98,8 +98,7 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
         ExtractorOutput,
         Loader.Callback<ProgressiveMediaPeriod.ExtractingLoadable>,
         Loader.ReleaseCallback,
-        UpstreamFormatChangedListener,
-        SampleQueue.BitrateListener {
+        UpstreamFormatChangedListener {
 
   /** Listener for information about the period. */
   interface Listener {
@@ -902,13 +901,6 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
     handler.post(maybeFinishPrepareRunnable);
   }
 
-  // BitrateListener implementation. Called by the loading thread.
-
-  @Override
-  public void onCurrentBitrateAvailable(long timeUs, int bitrate) {
-    handler.post(() -> mediaSourceEventDispatcher.currentBitrateAvailable(timeUs, bitrate));
-  }
-
   // Internal methods.
 
   private void onLengthKnown() {
@@ -930,7 +922,6 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
         SampleQueue.createWithDrm(allocator, drmSessionManager, drmEventDispatcher);
     ControlledTrackOutput trackOutput = new ControlledTrackOutput(sampleQueue);
     sampleQueue.setUpstreamFormatChangeListener(this);
-    sampleQueue.setBitrateListener(this);
     @NullableType
     TrackId[] sampleQueueTrackIds = Arrays.copyOf(this.sampleQueueTrackIds, trackCount + 1);
     sampleQueueTrackIds[trackCount] = id;

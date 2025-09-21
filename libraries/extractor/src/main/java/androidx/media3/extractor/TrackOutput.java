@@ -217,6 +217,4 @@ public interface TrackOutput {
    */
   void sampleMetadata(
       long timeUs, @C.BufferFlags int flags, int size, int offset, @Nullable CryptoData cryptoData);
-
-  default void sampleBitrate(long timeUs, int bitrate) {}
 }
