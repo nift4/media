@@ -185,10 +185,10 @@ public class TransformerAndroidTestRunner {
   }
 
   /** Exports the {@link EditedMediaItem} asynchronously. */
-  public ListenableFuture<ExportResult> runAsync(String testId, EditedMediaItem editedMediaItem)
+  public ListenableFuture<ExportTestResult> runAsync(String testId, EditedMediaItem editedMediaItem)
       throws IOException {
-    SettableFuture<ExportResult> completionFuture = SettableFuture.create();
-    File outputVideoFile = createOutputFile(testId);
+    SettableFuture<ExportTestResult> completionFuture = SettableFuture.create();
+    String outputFilePath = createOutputFile(testId).getAbsolutePath();
     InstrumentationRegistry.getInstrumentation()
         .runOnMainSync(
             () -> {
@@ -196,7 +196,10 @@ public class TransformerAndroidTestRunner {
                   new Transformer.Listener() {
                     @Override
                     public void onCompleted(Composition composition, ExportResult exportResult) {
-                      completionFuture.set(exportResult);
+                      completionFuture.set(
+                          new ExportTestResult.Builder(exportResult)
+                              .setFilePath(outputFilePath)
+                              .build());
                     }
 
                     @Override
@@ -207,7 +210,7 @@ public class TransformerAndroidTestRunner {
                       completionFuture.setException(exportException);
                     }
                   });
-              transformer.start(editedMediaItem, outputVideoFile.getAbsolutePath());
+              transformer.start(editedMediaItem, outputFilePath);
             });
 
     return completionFuture;
