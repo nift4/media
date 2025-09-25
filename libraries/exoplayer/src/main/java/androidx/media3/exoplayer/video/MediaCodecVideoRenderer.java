@@ -1862,6 +1862,16 @@ public class MediaCodecVideoRenderer extends MediaCodecRenderer
       videoFrameReleaseEarlyTimeForecaster.onVideoFrameProcessed(
           bufferPresentationTimeUs, videoFrameReleaseInfo.getEarlyUs());
     }
+    if (DEBUG_LOG_ENABLED) {
+      debugLogForBufferRelease(
+          frameReleaseAction,
+          bufferPresentationTimeUs,
+          positionUs,
+          isDecodeOnlyBuffer,
+          isLastBuffer,
+          videoFrameReleaseInfo,
+          lastFrameReleaseTimeNs);
+    }
     switch (frameReleaseAction) {
       case VideoFrameReleaseControl.FRAME_RELEASE_IMMEDIATELY:
         long releaseTimeNs = getClock().nanoTime();
@@ -2076,6 +2086,9 @@ public class MediaCodecVideoRenderer extends MediaCodecRenderer
     }
     // We dropped some buffers to catch up, so update the decoder counters and flush the codec,
     // which releases all pending buffers buffers including the current output buffer.
+    if (DEBUG_LOG_ENABLED) {
+      Log.d(DEBUG_LOG_TAG, "video, discard input to keyframe, count=" + droppedSourceBufferCount);
+    }
     if (treatDroppedBuffersAsSkipped) {
       decoderCounters.skippedInputBufferCount += droppedSourceBufferCount;
       decoderCounters.skippedOutputBufferCount += buffersInCodecCount;
@@ -2347,6 +2360,9 @@ public class MediaCodecVideoRenderer extends MediaCodecRenderer
       detachOutputSurfaceV35(codec);
     } else {
       throw new IllegalStateException();
+    }
+    if (DEBUG_LOG_ENABLED) {
+      Log.d(DEBUG_LOG_TAG, "video, codec surface=" + surface);
     }
   }
 
@@ -2627,6 +2643,58 @@ public class MediaCodecVideoRenderer extends MediaCodecRenderer
       this.height = height;
       this.inputSize = inputSize;
     }
+  }
+
+  private static void debugLogForBufferRelease(
+      @VideoFrameReleaseControl.FrameReleaseAction int frameReleaseAction,
+      long bufferPresentationTimeUs,
+      long positionUs,
+      boolean isDecodeOnlyBuffer,
+      boolean isLastBuffer,
+      VideoFrameReleaseControl.FrameReleaseInfo videoFrameReleaseInfo,
+      long lastFrameReleaseTimeNs) {
+    if (frameReleaseAction == VideoFrameReleaseControl.FRAME_RELEASE_TRY_AGAIN_LATER) {
+      return;
+    }
+    String debugString =
+        "video, release output, pts="
+            + bufferPresentationTimeUs
+            + ", pos="
+            + positionUs
+            + ", early="
+            + videoFrameReleaseInfo.getEarlyUs();
+    if (isDecodeOnlyBuffer) {
+      debugString += ", decode-only";
+    }
+    if (isLastBuffer) {
+      debugString += ", last-buffer";
+    }
+    switch (frameReleaseAction) {
+      case VideoFrameReleaseControl.FRAME_RELEASE_IMMEDIATELY:
+        debugString += ", release immediately";
+        break;
+      case VideoFrameReleaseControl.FRAME_RELEASE_SKIP:
+        debugString += ", skip";
+        break;
+      case VideoFrameReleaseControl.FRAME_RELEASE_DROP:
+        debugString += ", drop";
+        break;
+      case VideoFrameReleaseControl.FRAME_RELEASE_IGNORE:
+        debugString += ", ignore";
+        break;
+      case VideoFrameReleaseControl.FRAME_RELEASE_SCHEDULED:
+        long releaseTimeNs = videoFrameReleaseInfo.getReleaseTimeNs();
+        debugString += ", release=" + (releaseTimeNs / 1000);
+        if (lastFrameReleaseTimeNs != 0) {
+          debugString += " (+" + (releaseTimeNs - lastFrameReleaseTimeNs) / 1000 + ")";
+        }
+        break;
+      case VideoFrameReleaseControl.FRAME_RELEASE_TRY_AGAIN_LATER:
+      default:
+        // Filtered above.
+        break;
+    }
+    Log.d(DEBUG_LOG_TAG, debugString);
   }
 
   /**
