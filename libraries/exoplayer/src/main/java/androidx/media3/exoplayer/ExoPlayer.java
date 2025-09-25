@@ -242,6 +242,7 @@ public interface ExoPlayer extends Player {
     /* package */ AudioAttributes audioAttributes;
     /* package */ boolean handleAudioFocus;
     @C.WakeMode /* package */ int wakeMode;
+    /* package */ boolean wakeModeSet;
     /* package */ boolean handleAudioBecomingNoisy;
     /* package */ boolean skipSilenceEnabled;
     /* package */ boolean deviceVolumeControlEnabled;
@@ -295,7 +296,8 @@ public interface ExoPlayer extends Player {
      *   <li>{@link C.Priority}: {@link C#PRIORITY_PLAYBACK}
      *   <li>{@link PriorityTaskManager}: {@code null} (not used)
      *   <li>{@link AudioAttributes}: {@link AudioAttributes#DEFAULT}, not handling audio focus
-     *   <li>{@link C.WakeMode}: {@link C#WAKE_MODE_NONE}
+     *   <li>{@link C.WakeMode}: {@link C#WAKE_MODE_LOCAL}, or {@link C#WAKE_MODE_NONE} if any of
+     *       the {@code stuck...DetectionTimeoutMs} values are set to {@link Integer#MAX_VALUE}.
      *   <li>{@code handleAudioBecomingNoisy}: {@code false}
      *   <li>{@code suppressPlaybackOnUnsuitableOutput}: {@code false}
      *   <li>{@code skipSilenceEnabled}: {@code false}
@@ -753,6 +755,7 @@ public interface ExoPlayer extends Player {
     public Builder setWakeMode(@C.WakeMode int wakeMode) {
       checkState(!buildCalled);
       this.wakeMode = wakeMode;
+      this.wakeModeSet = true;
       return this;
     }
 
