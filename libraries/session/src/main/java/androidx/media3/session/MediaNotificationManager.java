@@ -129,6 +129,7 @@ import java.util.concurrent.atomic.AtomicInteger;
     startSelfIntent = new Intent(mediaSessionService, mediaSessionService.getClass());
     startSelfIntentUid = UUID.randomUUID().toString();
     startSelfIntent.putExtra(SELF_INTENT_UID_KEY, startSelfIntentUid);
+    startSelfIntent.setAction("androidx.media3.action.START_SELF_INTENT");
     controllerMap = new HashMap<>();
     mediaNotifications = new HashMap<>();
     isUserEngagedTimeoutEnabled = true;
