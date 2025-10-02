@@ -241,7 +241,9 @@
         a shutter.
     *   Create a new `media3-ui-compose-material3` module and add
         Material3-themed Composables (PlayPauseButton, NextButton,
-        PreviousButton, SeekBackButton, and SeekForwardButton) to it.
+        PreviousButton, SeekBackButton, SeekForwardButton, RepeatButton,
+        ShuffleButton, MuteButton) to it.
+    *   Add support for placing a media route button in the `PlayerView`.
 *   Downloads:
 *   OkHttp extension:
 *   Cronet extension:
