@@ -95,6 +95,7 @@ import androidx.media3.exoplayer.LoadControl;
 import androidx.media3.exoplayer.RendererCapabilities;
 import androidx.media3.exoplayer.RendererCapabilities.Capabilities;
 import androidx.media3.exoplayer.analytics.AnalyticsCollector;
+import androidx.media3.exoplayer.analytics.AnalyticsListener;
 import androidx.media3.exoplayer.analytics.DefaultAnalyticsCollector;
 import androidx.media3.exoplayer.audio.AudioSink;
 import androidx.media3.exoplayer.audio.DefaultAudioSink;
@@ -542,6 +543,8 @@ public final class CompositionPlayer extends SimpleBasePlayer {
   /** Maps from input index to whether the video track is selected in that sequence. */
   private final SparseBooleanArray videoTracksSelected;
 
+  private final AnalyticsCollector analyticsCollector;
+
   private @MonotonicNonNull HandlerThread playbackThread;
   private @MonotonicNonNull HandlerWrapper playbackThreadHandler;
   private @MonotonicNonNull CompositionPlayerInternal compositionPlayerInternal;
@@ -635,7 +638,7 @@ public final class CompositionPlayer extends SimpleBasePlayer {
       frameAggregator = null;
       videoPacketReleaseControl = null;
     }
-    AnalyticsCollector analyticsCollector = new DefaultAnalyticsCollector(clock);
+    analyticsCollector = new DefaultAnalyticsCollector(clock);
     analyticsCollector.setPlayer(this, builder.looper);
     analyticsCollector.addListener(new EventLogger(TAG));
     addListener(analyticsCollector);
@@ -688,6 +691,27 @@ public final class CompositionPlayer extends SimpleBasePlayer {
     // Update the composition field at the end after everything else has been set.
     this.composition = composition;
     maybeSetVideoOutput();
+  }
+
+  /**
+   * Adds an {@link AnalyticsListener} to receive analytics events.
+   *
+   * <p>This method can be called from any thread.
+   *
+   * @param listener The listener to be added.
+   */
+  public void addAnalyticsListener(AnalyticsListener listener) {
+    analyticsCollector.addListener(listener);
+  }
+
+  /**
+   * Removes an {@link AnalyticsListener}.
+   *
+   * @param listener The listener to be removed.
+   */
+  public void removeAnalyticsListener(AnalyticsListener listener) {
+    verifyApplicationThread();
+    analyticsCollector.removeListener(listener);
   }
 
   /**
@@ -896,6 +920,7 @@ public final class CompositionPlayer extends SimpleBasePlayer {
     if (shouldShutdownExecutorService && executorService != null) {
       executorService.shutdown();
     }
+    analyticsCollector.release();
     return Futures.immediateVoidFuture();
   }
 
@@ -1382,6 +1407,7 @@ public final class CompositionPlayer extends SimpleBasePlayer {
             renderersFactory,
             /* inputIndex= */ sequenceIndex);
     playerHolder.player.addListener(new PlayerListener(sequenceIndex));
+    playerHolder.player.addAnalyticsListener(new PlayerAnalyticsListener());
     playerHolder.player.addAnalyticsListener(new EventLogger(TAG + "-" + sequenceIndex));
     // Audio focus is handled directly by CompositionPlayer, not by sequence players.
     playerHolder.player.setAudioAttributes(audioAttributes, /* handleAudioFocus= */ false);
@@ -2016,6 +2042,14 @@ public final class CompositionPlayer extends SimpleBasePlayer {
     }
   }
 
+  private final class PlayerAnalyticsListener implements AnalyticsListener {
+    @Override
+    public void onDroppedVideoFrames(EventTime eventTime, int droppedFrames, long elapsedMs) {
+      // TODO: b/451741691 - Signal to the application which input sequence drops frames.
+      analyticsCollector.onDroppedFrames(droppedFrames, elapsedMs);
+    }
+  }
+
   private void onVideoTrackSelection(boolean selected, int inputIndex) {
     videoTracksSelected.put(inputIndex, selected);
 
@@ -2138,6 +2172,12 @@ public final class CompositionPlayer extends SimpleBasePlayer {
       maybeUpdatePlaybackError(message, cause, errorCode);
     }
 
+    @Override
+    public void onDroppedVideoFrames(int droppedFrameCount, long elapsedMs) {
+      // TODO: b/451741691 - Signal to the application that these frames were dropped at the output.
+      analyticsCollector.onDroppedFrames(droppedFrameCount, elapsedMs);
+    }
+
     // SurfaceHolder.Callback methods. Called on application thread.
 
     @Override
@@ -2170,8 +2210,10 @@ public final class CompositionPlayer extends SimpleBasePlayer {
 
     @Override
     public void onFrameDropped() {
-      // Do not post to application thread on each dropped frame, because onFrameDropped
-      // may be called frequently when resources are already scarce.
+      if (compositionPlayerInternal == null) {
+        return;
+      }
+      compositionPlayerInternal.onFrameDropped();
     }
 
     @Override
