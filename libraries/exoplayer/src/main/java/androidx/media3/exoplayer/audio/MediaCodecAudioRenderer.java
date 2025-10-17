@@ -288,7 +288,7 @@ public class MediaCodecAudioRenderer extends MediaCodecRenderer implements Media
         eventHandler,
         eventListener,
         audioSink,
-        SDK_INT >= 35 ? new LoudnessCodecController() : null);
+        SDK_INT >= 35 ? new LoudnessCodecController(bundle -> Bundle.EMPTY) : null);
   }
 
   /**
