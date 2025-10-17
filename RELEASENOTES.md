@@ -179,6 +179,9 @@
         ([#2775](https://github.com/androidx/media/issues/2775)).
 *   Metadata:
 *   Image:
+    *   Fix ScrubbingMode issue where player gets stuck while scrubbing a DASH
+        thumbnail track
+        ([#2815](https://github.com/androidx/media/issues/2815)).
 *   DataSource:
 *   DRM:
     *   Change the return type of `MediaDrmCallback` methods from `byte[]` to a
