@@ -264,8 +264,9 @@ public final class AudioFocusManager {
       audioFocusRequest =
           builder
               .setAudioAttributes(checkNotNull(audioAttributes))
-              .setWillPauseWhenDucked(willPauseWhenDucked)
-              .setAcceptsDelayedFocusGain(true)
+              .setWillPauseWhenDucked(willPauseWhenDucked ||
+		              audioAttributes.contentType == C.AUDIO_CONTENT_TYPE_MUSIC)
+                .setAcceptsDelayedFocusGain(true)
               .setOnAudioFocusChangeListener(this::handlePlatformAudioFocusChange, eventHandler)
               .build();
 
