@@ -39,11 +39,13 @@ import static androidx.media3.session.MediaConstants.EXTRAS_KEY_MEDIA_ID_COMPAT;
 import static androidx.media3.session.MediaConstants.EXTRAS_KEY_PLAYBACK_SPEED_COMPAT;
 import static androidx.media3.session.MediaUtils.intersect;
 import static androidx.media3.session.SessionCommand.COMMAND_CODE_CUSTOM;
+import static androidx.media3.session.SessionCommand.COMMAND_CODE_SESSION_SET_RATING;
 import static androidx.media3.session.SessionError.ERROR_UNKNOWN;
 import static androidx.media3.session.SessionResult.RESULT_INFO_SKIPPED;
 import static androidx.media3.session.SessionResult.RESULT_SUCCESS;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
+import static com.google.common.base.Preconditions.checkState;
 
 import android.annotation.SuppressLint;
 import android.app.PendingIntent;
@@ -538,6 +540,10 @@ import org.checkerframework.checker.initialization.qual.Initialized;
     }
     Bundle nonNullArgs = args != null ? args : Bundle.EMPTY;
     SessionCommand command = new SessionCommand(action, nonNullArgs);
+    if (CommandButton.isPredefinedCustomCommandButtonCode(command.customAction)) {
+      dispatchCustomCommandAsPredefinedCommand(command);
+      return;
+    }
     dispatchSessionTaskWithSessionCommand(
         command,
         controller ->
@@ -616,33 +622,7 @@ import org.checkerframework.checker.initialization.qual.Initialized;
 
   @Override
   public void onPlay() {
-    dispatchSessionTaskWithPlayerCommand(
-        COMMAND_PLAY_PAUSE,
-        controller -> {
-          ListenableFuture<SessionResult> resultFuture =
-              sessionImpl.handleMediaControllerPlayRequest(
-                  controller,
-                  /* callOnPlayerInteractionFinished= */ true,
-                  /* mustStartForegroundService= */ false);
-          Futures.addCallback(
-              resultFuture,
-              new FutureCallback<SessionResult>() {
-                @Override
-                public void onSuccess(SessionResult result) {
-                  if (result.resultCode != RESULT_SUCCESS) {
-                    Log.w(TAG, "onPlay() failed: " + result + " (from: " + controller + ")");
-                  }
-                }
-
-                @Override
-                public void onFailure(Throwable t) {
-                  Log.e(TAG, "Unexpected exception in onPlay() of " + controller, t);
-                }
-              },
-              MoreExecutors.directExecutor());
-        },
-        sessionCompat.getCurrentControllerInfo(),
-        /* callOnPlayerInteractionFinished= */ false);
+    dispatchSessionTaskWithPlayRequest();
   }
 
   @Override
@@ -788,18 +768,7 @@ import org.checkerframework.checker.initialization.qual.Initialized;
       Log.w(TAG, "Ignoring invalid RatingCompat " + ratingCompat);
       return;
     }
-    dispatchSessionTaskWithSessionCommand(
-        SessionCommand.COMMAND_CODE_SESSION_SET_RATING,
-        controller -> {
-          @Nullable
-          MediaItem currentItem =
-              sessionImpl.getPlayerWrapper().getCurrentMediaItemWithCommandCheck();
-          if (currentItem == null) {
-            return;
-          }
-          // MediaControllerCompat#setRating doesn't return a value.
-          ignoreFuture(sessionImpl.onSetRatingOnHandler(controller, currentItem.mediaId, rating));
-        });
+    dispatchSessionTaskWithSetRatingSessionCommand(rating);
   }
 
   @Override
@@ -886,6 +855,36 @@ import org.checkerframework.checker.initialization.qual.Initialized;
     return broadcastReceiverComponentName != null;
   }
 
+  private void dispatchSessionTaskWithPlayRequest() {
+      dispatchSessionTaskWithPlayerCommand(
+              COMMAND_PLAY_PAUSE,
+              controller -> {
+                  ListenableFuture<SessionResult> resultFuture =
+                          sessionImpl.handleMediaControllerPlayRequest(
+                                  controller,
+                                  /* callOnPlayerInteractionFinished= */ true,
+                                  /* mustStartForegroundService= */ false);
+                  Futures.addCallback(
+                          resultFuture,
+                          new FutureCallback<SessionResult>() {
+                              @Override
+                              public void onSuccess(SessionResult result) {
+                                  if (result.resultCode != RESULT_SUCCESS) {
+                                      Log.w(TAG, "onPlay() failed: " + result + " (from: " + controller + ")");
+                                  }
+                              }
+
+                              @Override
+                              public void onFailure(Throwable t) {
+                                  Log.e(TAG, "Unexpected exception in onPlay() of " + controller, t);
+                              }
+                          },
+                          MoreExecutors.directExecutor());
+              },
+              sessionCompat.getCurrentControllerInfo(),
+              /* callOnPlayerInteractionFinished= */ false);
+  }
+
   private void dispatchSessionTaskWithPlayerCommand(
       @Player.Command int command,
       SessionTask task,
@@ -954,10 +953,21 @@ import org.checkerframework.checker.initialization.qual.Initialized;
     }
   }
 
-  private void dispatchSessionTaskWithSessionCommand(
-      @CommandCode int commandCode, SessionTask task) {
+  private void dispatchSessionTaskWithSetRatingSessionCommand(Rating rating) {
     dispatchSessionTaskWithSessionCommandInternal(
-        null, commandCode, task, sessionCompat.getCurrentControllerInfo());
+        /* sessionCommand= */ null,
+        COMMAND_CODE_SESSION_SET_RATING,
+        controller -> {
+          @Nullable
+          MediaItem currentItem =
+              sessionImpl.getPlayerWrapper().getCurrentMediaItemWithCommandCheck();
+          if (currentItem == null) {
+            return;
+          }
+          // MediaControllerCompat#setRating doesn't return a value.
+          ignoreFuture(sessionImpl.onSetRatingOnHandler(controller, currentItem.mediaId, rating));
+        },
+        sessionCompat.getCurrentControllerInfo());
   }
 
   private void dispatchSessionTaskWithSessionCommand(
@@ -1013,6 +1023,41 @@ import org.checkerframework.checker.initialization.qual.Initialized;
       //     (e.g. add pagination or special way to deliver Bitmap)
       //   - DeadSystemException means that errors around it can be ignored.
       Log.w(TAG, "Exception in " + controller, e);
+    }
+  }
+
+  private void dispatchCustomCommandAsPredefinedCommand(SessionCommand command) {
+    CommandButton actualCommand;
+    try {
+      actualCommand = CommandButton.convertFromPredefinedCustomCommand(command);
+    } catch (RuntimeException e) {
+      // Catch exception caused by malformed data from a controller.
+      Log.w(TAG, "Failed to convert predefined custom command: " + command.customAction, e);
+      return;
+    }
+    if (!actualCommand.canExecuteAction()) {
+      Log.w(TAG, "Can't execute predefined custom command: " + command.customAction);
+      return;
+    }
+    if (actualCommand.sessionCommand != null) {
+      checkState(actualCommand.sessionCommand.commandCode == COMMAND_CODE_SESSION_SET_RATING);
+      dispatchSessionTaskWithSetRatingSessionCommand(
+          (Rating) checkNotNull(actualCommand.parameter));
+    } else {
+      if (actualCommand.isPlayRequestPlayerAction(sessionImpl.getPlayerWrapper())) {
+        dispatchSessionTaskWithPlayRequest();
+      } else if (actualCommand.playerCommand == COMMAND_SET_MEDIA_ITEM) {
+        handleMediaRequest(
+            (MediaItem) checkNotNull(actualCommand.parameter),
+            /* prepare= */ false,
+            /* play= */ false);
+      } else {
+        dispatchSessionTaskWithPlayerCommand(
+            actualCommand.playerCommand,
+            controller -> actualCommand.executePlayerAction(sessionImpl.getPlayerWrapper()),
+            sessionCompat.getCurrentControllerInfo(),
+            /* callOnPlayerInteractionFinished= */ true);
+      }
     }
   }
 
@@ -1078,6 +1123,10 @@ import org.checkerframework.checker.initialization.qual.Initialized;
   }
 
   private void handleMediaRequest(MediaItem mediaItem, boolean play) {
+    handleMediaRequest(mediaItem, /* prepare= */ true, play);
+  }
+
+  private void handleMediaRequest(MediaItem mediaItem, boolean prepare, boolean play) {
     dispatchSessionTaskWithPlayerCommand(
         COMMAND_SET_MEDIA_ITEM,
         controller -> {
@@ -1098,10 +1147,12 @@ import org.checkerframework.checker.initialization.qual.Initialized;
                             MediaUtils.setMediaItemsWithStartIndexAndPosition(
                                 player, mediaItemsWithStartPosition);
                             @Player.State int playbackState = player.getPlaybackState();
-                            if (playbackState == Player.STATE_IDLE) {
-                              player.prepareIfCommandAvailable();
-                            } else if (playbackState == Player.STATE_ENDED) {
-                              player.seekToDefaultPositionIfCommandAvailable();
+                            if (prepare) {
+                              if (playbackState == Player.STATE_IDLE) {
+                                player.prepareIfCommandAvailable();
+                              } else if (playbackState == Player.STATE_ENDED) {
+                                player.seekToDefaultPositionIfCommandAvailable();
+                              }
                             }
                             if (play) {
                               player.playIfCommandAvailable();
@@ -1897,8 +1948,9 @@ import org.checkerframework.checker.initialization.qual.Initialized;
       if (sessionCommand != null
           && commandButton.isEnabled
           && sessionCommand.commandCode == SessionCommand.COMMAND_CODE_CUSTOM
-          && CommandButton.isButtonCommandAvailable(
-              commandButton, availableSessionCommands, availableCommands)) {
+          && (CommandButton.isButtonCommandAvailable(
+                  commandButton, availableSessionCommands, availableCommands)
+              || CommandButton.isPredefinedCustomCommandButtonCode(sessionCommand.customAction))) {
         boolean hasIcon = commandButton.icon != CommandButton.ICON_UNDEFINED;
         boolean hasIconUri = commandButton.iconUri != null;
         Bundle actionExtras =
