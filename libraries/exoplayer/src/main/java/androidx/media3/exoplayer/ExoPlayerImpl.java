@@ -238,7 +238,6 @@ import java.util.concurrent.CopyOnWriteArraySet;
 
   // Playback information when there is a pending seek/set source operation.
   private int maskingWindowIndex;
-  private int maskingPeriodIndex;
   private long maskingWindowPositionMs;
 
   @SuppressLint("HandlerLeak")
@@ -1157,7 +1156,7 @@ import java.util.concurrent.CopyOnWriteArraySet;
   public int getCurrentPeriodIndex() {
     verifyApplicationThread();
     if (playbackInfo.timeline.isEmpty()) {
-      return maskingPeriodIndex;
+      return maskingWindowIndex == C.INDEX_UNSET ? 0 : maskingWindowIndex;
     } else {
       return playbackInfo.timeline.getIndexOfPeriod(playbackInfo.periodId.periodUid);
     }
@@ -2131,7 +2130,6 @@ import java.util.concurrent.CopyOnWriteArraySet;
         // ConcatenatingMediaSource has been cleared.
         maskingWindowIndex = C.INDEX_UNSET;
         maskingWindowPositionMs = 0;
-        maskingPeriodIndex = 0;
       }
       if (!newTimeline.isEmpty()) {
         List<Timeline> timelines = ((PlaylistTimeline) newTimeline).getChildTimelines();
@@ -2340,7 +2338,7 @@ import java.util.concurrent.CopyOnWriteArraySet;
     @Nullable Object oldWindowUid = null;
     @Nullable Object oldPeriodUid = null;
     int oldMediaItemIndex = oldMaskingMediaItemIndex;
-    int oldPeriodIndex = C.INDEX_UNSET;
+    int oldPeriodIndex = oldMaskingMediaItemIndex;
     @Nullable MediaItem oldMediaItem = null;
     Timeline.Period oldPeriod = new Timeline.Period();
     if (!oldPlaybackInfo.timeline.isEmpty()) {
@@ -2394,7 +2392,7 @@ import java.util.concurrent.CopyOnWriteArraySet;
     @Nullable Object newWindowUid = null;
     @Nullable Object newPeriodUid = null;
     int newMediaItemIndex = getCurrentMediaItemIndex();
-    int newPeriodIndex = C.INDEX_UNSET;
+    int newPeriodIndex = getCurrentPeriodIndex();
     @Nullable MediaItem newMediaItem = null;
     if (!playbackInfo.timeline.isEmpty()) {
       newPeriodUid = playbackInfo.periodId.periodUid;
@@ -2810,7 +2808,6 @@ import java.util.concurrent.CopyOnWriteArraySet;
       // If empty we store the initial seek in the masking variables.
       maskingWindowIndex = windowIndex;
       maskingWindowPositionMs = windowPositionMs == C.TIME_UNSET ? 0 : windowPositionMs;
-      maskingPeriodIndex = 0;
       return null;
     }
     if (windowIndex == C.INDEX_UNSET || windowIndex >= timeline.getWindowCount()) {
