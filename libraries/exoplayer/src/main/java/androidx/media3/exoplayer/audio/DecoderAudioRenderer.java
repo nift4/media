@@ -167,6 +167,7 @@ public abstract class DecoderAudioRenderer<
   private final long[] pendingOutputStreamOffsetsUs;
   private int pendingOutputStreamOffsetCount;
   private boolean hasPendingReportedSkippedSilence;
+  private boolean hasReportedAudioPositionAdvancing;
   private boolean isStarted;
   private long largestQueuedPresentationTimeUs;
   private long lastBufferInStreamPresentationTimeUs;
@@ -255,9 +256,11 @@ public abstract class DecoderAudioRenderer<
           : DEFAULT_DURATION_TO_PROGRESS_US;
     }
     long audioTrackBufferDurationUs = audioSink.getAudioTrackBufferSizeUs();
-    if (!audioSinkBufferFull || audioTrackBufferDurationUs == C.TIME_UNSET) {
-      // If the AudioSink buffer is not yet full or getting the audio track buffer size is
-      // unsupported, continue calling with default duration to progress.
+    if (!hasReportedAudioPositionAdvancing
+        || !audioSinkBufferFull
+        || audioTrackBufferDurationUs == C.TIME_UNSET) {
+      // If audio has not yet advanced, the AudioSink buffer is not yet full, or getting the audio
+      // track buffer size is unsupported, continue calling with default duration to progress.
       return DEFAULT_DURATION_TO_PROGRESS_US;
     }
     // Compare written, yet-to-play content duration against the audio track buffer size.
@@ -677,6 +680,7 @@ public abstract class DecoderAudioRenderer<
     currentPositionUs = positionUs;
     nextBufferToWritePresentationTimeUs = C.TIME_UNSET;
     hasPendingReportedSkippedSilence = false;
+    hasReportedAudioPositionAdvancing = false;
     allowPositionDiscontinuity = true;
     inputStreamEnded = false;
     outputStreamEnded = false;
@@ -696,6 +700,7 @@ public abstract class DecoderAudioRenderer<
     updateCurrentPosition();
     audioSink.pause();
     isStarted = false;
+    hasReportedAudioPositionAdvancing = false;
   }
 
   @Override
@@ -704,6 +709,7 @@ public abstract class DecoderAudioRenderer<
     audioTrackNeedsConfigure = true;
     setOutputStreamOffsetUs(C.TIME_UNSET);
     hasPendingReportedSkippedSilence = false;
+    hasReportedAudioPositionAdvancing = false;
     nextBufferToWritePresentationTimeUs = C.TIME_UNSET;
     try {
       setSourceDrmSession(null);
@@ -918,6 +924,7 @@ public abstract class DecoderAudioRenderer<
 
     @Override
     public void onPositionAdvancing(long playoutStartSystemTimeMs) {
+      hasReportedAudioPositionAdvancing = true;
       eventDispatcher.positionAdvancing(playoutStartSystemTimeMs);
     }
 
