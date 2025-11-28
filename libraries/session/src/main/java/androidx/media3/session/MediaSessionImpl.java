@@ -263,7 +263,7 @@ import org.checkerframework.checker.initialization.qual.Initialized;
             Process.myUid(),
             SessionToken.TYPE_SESSION,
             MediaLibraryInfo.VERSION_INT,
-            MediaSessionStub.VERSION_INT,
+            MediaLibraryInfo.INTERFACE_VERSION,
             context.getPackageName(),
             sessionStub,
             tokenExtras,
