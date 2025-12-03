@@ -618,7 +618,7 @@ public class MediaSessionProviderService extends Service {
       }
       @Nullable Bundle timelineBundle = config.getBundle(KEY_TIMELINE);
       if (timelineBundle != null) {
-        player.timeline = Timeline.fromBundle(timelineBundle);
+        player.timeline = Timeline.fromBundle(timelineBundle, MediaLibraryInfo.INTERFACE_VERSION);
       }
       player.currentMediaItemIndex =
           config.getInt(KEY_CURRENT_MEDIA_ITEM_INDEX, player.currentMediaItemIndex);
@@ -626,7 +626,8 @@ public class MediaSessionProviderService extends Service {
           config.getInt(KEY_CURRENT_PERIOD_INDEX, player.currentPeriodIndex);
       @Nullable Bundle playlistMetadataBundle = config.getBundle(KEY_PLAYLIST_METADATA);
       if (playlistMetadataBundle != null) {
-        player.playlistMetadata = MediaMetadata.fromBundle(playlistMetadataBundle);
+        player.playlistMetadata =
+            MediaMetadata.fromBundle(playlistMetadataBundle, MediaLibraryInfo.INTERFACE_VERSION);
       }
       @Nullable Bundle videoSizeBundle = config.getBundle(KEY_VIDEO_SIZE);
       if (videoSizeBundle != null) {
@@ -660,7 +661,8 @@ public class MediaSessionProviderService extends Service {
           config.getLong(KEY_SEEK_FORWARD_INCREMENT_MS, player.seekForwardIncrementMs);
       @Nullable Bundle mediaMetadataBundle = config.getBundle(KEY_MEDIA_METADATA);
       if (mediaMetadataBundle != null) {
-        player.mediaMetadata = MediaMetadata.fromBundle(mediaMetadataBundle);
+        player.mediaMetadata =
+            MediaMetadata.fromBundle(mediaMetadataBundle, MediaLibraryInfo.INTERFACE_VERSION);
       }
       player.maxSeekToPreviousPositionMs =
           config.getLong(KEY_MAX_SEEK_TO_PREVIOUS_POSITION_MS, player.maxSeekToPreviousPositionMs);
@@ -1157,8 +1159,8 @@ public class MediaSessionProviderService extends Service {
             MediaSession session = sessionMap.get(sessionId);
             MockPlayer player = (MockPlayer) session.getPlayer();
             player.notifyPositionDiscontinuity(
-                PositionInfo.fromBundle(oldPositionBundle),
-                PositionInfo.fromBundle(newPositionBundle),
+                PositionInfo.fromBundle(oldPositionBundle, MediaLibraryInfo.INTERFACE_VERSION),
+                PositionInfo.fromBundle(newPositionBundle, MediaLibraryInfo.INTERFACE_VERSION),
                 reason);
           });
     }
@@ -1225,7 +1227,8 @@ public class MediaSessionProviderService extends Service {
           () -> {
             MediaSession session = sessionMap.get(sessionId);
             MockPlayer player = (MockPlayer) session.getPlayer();
-            player.timeline = Timeline.fromBundle(timelineBundle);
+            player.timeline =
+                Timeline.fromBundle(timelineBundle, MediaLibraryInfo.INTERFACE_VERSION);
             List<MediaItem> mediaItems = new ArrayList<>();
             for (int i = 0; i < player.timeline.getWindowCount(); i++) {
               mediaItems.add(
@@ -1262,7 +1265,8 @@ public class MediaSessionProviderService extends Service {
           () -> {
             MediaSession session = sessionMap.get(sessionId);
             MockPlayer player = (MockPlayer) session.getPlayer();
-            player.mediaMetadata = MediaMetadata.fromBundle(metadataBundle);
+            player.mediaMetadata =
+                MediaMetadata.fromBundle(metadataBundle, MediaLibraryInfo.INTERFACE_VERSION);
           });
     }
 
@@ -1273,7 +1277,9 @@ public class MediaSessionProviderService extends Service {
           () -> {
             MediaSession session = sessionMap.get(sessionId);
             MockPlayer player = (MockPlayer) session.getPlayer();
-            player.playlistMetadata = MediaMetadata.fromBundle(playlistMetadataBundle);
+            player.playlistMetadata =
+                MediaMetadata.fromBundle(
+                    playlistMetadataBundle, MediaLibraryInfo.INTERFACE_VERSION);
           });
     }
 
@@ -1509,7 +1515,8 @@ public class MediaSessionProviderService extends Service {
     @Override
     public void notifyMediaMetadataChanged(String sessionId, Bundle mediaMetadataBundle)
         throws RemoteException {
-      MediaMetadata mediaMetadata = MediaMetadata.fromBundle(mediaMetadataBundle);
+      MediaMetadata mediaMetadata =
+          MediaMetadata.fromBundle(mediaMetadataBundle, MediaLibraryInfo.INTERFACE_VERSION);
       runOnHandler(
           () -> {
             MediaSession session = sessionMap.get(sessionId);

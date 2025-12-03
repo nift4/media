@@ -751,7 +751,7 @@ import org.checkerframework.checker.nullness.qual.NonNull;
 
   @Override
   public ListenableFuture<SessionResult> sendCustomCommand(SessionCommand command, Bundle args) {
-    if (checkNotNull(connectedToken).getInterfaceVersion() >= 7) {
+    if (getSessionInterfaceVersion() >= 7) {
       // Always use the newer remote API if available. The session Callback implementation delegates
       // accordingly.
       return sendCustomCommand(command, args, /* progressListener= */ null);
@@ -764,7 +764,7 @@ import org.checkerframework.checker.nullness.qual.NonNull;
   @Override
   public ListenableFuture<SessionResult> sendCustomCommand(
       SessionCommand command, Bundle args, @Nullable ProgressListener progressListener) {
-    if (checkNotNull(connectedToken).getInterfaceVersion() < 7) {
+    if (getSessionInterfaceVersion() < 7) {
       // sendCustomCommandWithProgressListener only available with session version 8 and greater.
       return sendCustomCommand(command, args);
     }
@@ -833,7 +833,9 @@ import org.checkerframework.checker.nullness.qual.NonNull;
     dispatchRemoteSessionTaskWithPlayerCommand(
         (iSession, seq) ->
             iSession.setMediaItem(
-                controllerStub, seq, mediaItem.toBundleIncludeLocalConfiguration()));
+                controllerStub,
+                seq,
+                mediaItem.toBundleIncludeLocalConfiguration(getSessionInterfaceVersion())));
 
     setMediaItemsInternal(
         Collections.singletonList(mediaItem),
@@ -853,7 +855,7 @@ import org.checkerframework.checker.nullness.qual.NonNull;
             iSession.setMediaItemWithStartPosition(
                 controllerStub,
                 seq,
-                mediaItem.toBundleIncludeLocalConfiguration(),
+                mediaItem.toBundleIncludeLocalConfiguration(getSessionInterfaceVersion()),
                 startPositionMs));
 
     setMediaItemsInternal(
@@ -872,7 +874,10 @@ import org.checkerframework.checker.nullness.qual.NonNull;
     dispatchRemoteSessionTaskWithPlayerCommand(
         (iSession, seq) ->
             iSession.setMediaItemWithResetPosition(
-                controllerStub, seq, mediaItem.toBundleIncludeLocalConfiguration(), resetPosition));
+                controllerStub,
+                seq,
+                mediaItem.toBundleIncludeLocalConfiguration(getSessionInterfaceVersion()),
+                resetPosition));
 
     setMediaItemsInternal(
         Collections.singletonList(mediaItem),
@@ -894,7 +899,10 @@ import org.checkerframework.checker.nullness.qual.NonNull;
                 seq,
                 new BundleListRetriever(
                     BundleCollectionUtil.toBundleList(
-                        mediaItems, MediaItem::toBundleIncludeLocalConfiguration))));
+                        mediaItems,
+                        item ->
+                            item.toBundleIncludeLocalConfiguration(
+                                getSessionInterfaceVersion())))));
 
     setMediaItemsInternal(
         mediaItems,
@@ -916,7 +924,9 @@ import org.checkerframework.checker.nullness.qual.NonNull;
                 seq,
                 new BundleListRetriever(
                     BundleCollectionUtil.toBundleList(
-                        mediaItems, MediaItem::toBundleIncludeLocalConfiguration)),
+                        mediaItems,
+                        item ->
+                            item.toBundleIncludeLocalConfiguration(getSessionInterfaceVersion()))),
                 resetPosition));
 
     setMediaItemsInternal(
@@ -939,7 +949,9 @@ import org.checkerframework.checker.nullness.qual.NonNull;
                 seq,
                 new BundleListRetriever(
                     BundleCollectionUtil.toBundleList(
-                        mediaItems, MediaItem::toBundleIncludeLocalConfiguration)),
+                        mediaItems,
+                        item ->
+                            item.toBundleIncludeLocalConfiguration(getSessionInterfaceVersion()))),
                 startIndex,
                 startPositionMs));
 
@@ -955,7 +967,8 @@ import org.checkerframework.checker.nullness.qual.NonNull;
 
     dispatchRemoteSessionTaskWithPlayerCommand(
         (iSession, seq) ->
-            iSession.setPlaylistMetadata(controllerStub, seq, playlistMetadata.toBundle()));
+            iSession.setPlaylistMetadata(
+                controllerStub, seq, playlistMetadata.toBundle(getSessionInterfaceVersion())));
 
     if (!playerInfo.playlistMetadata.equals(playlistMetadata)) {
       playerInfo = playerInfo.copyWithPlaylistMetadata(playlistMetadata);
@@ -980,7 +993,9 @@ import org.checkerframework.checker.nullness.qual.NonNull;
     dispatchRemoteSessionTaskWithPlayerCommand(
         (iSession, seq) ->
             iSession.addMediaItem(
-                controllerStub, seq, mediaItem.toBundleIncludeLocalConfiguration()));
+                controllerStub,
+                seq,
+                mediaItem.toBundleIncludeLocalConfiguration(getSessionInterfaceVersion())));
 
     addMediaItemsInternal(
         getCurrentTimeline().getWindowCount(), Collections.singletonList(mediaItem));
@@ -996,7 +1011,10 @@ import org.checkerframework.checker.nullness.qual.NonNull;
     dispatchRemoteSessionTaskWithPlayerCommand(
         (iSession, seq) ->
             iSession.addMediaItemWithIndex(
-                controllerStub, seq, index, mediaItem.toBundleIncludeLocalConfiguration()));
+                controllerStub,
+                seq,
+                index,
+                mediaItem.toBundleIncludeLocalConfiguration(getSessionInterfaceVersion())));
 
     addMediaItemsInternal(index, Collections.singletonList(mediaItem));
   }
@@ -1014,7 +1032,10 @@ import org.checkerframework.checker.nullness.qual.NonNull;
                 seq,
                 new BundleListRetriever(
                     BundleCollectionUtil.toBundleList(
-                        mediaItems, MediaItem::toBundleIncludeLocalConfiguration))));
+                        mediaItems,
+                        item ->
+                            item.toBundleIncludeLocalConfiguration(
+                                getSessionInterfaceVersion())))));
 
     addMediaItemsInternal(getCurrentTimeline().getWindowCount(), mediaItems);
   }
@@ -1034,7 +1055,10 @@ import org.checkerframework.checker.nullness.qual.NonNull;
                 index,
                 new BundleListRetriever(
                     BundleCollectionUtil.toBundleList(
-                        mediaItems, MediaItem::toBundleIncludeLocalConfiguration))));
+                        mediaItems,
+                        item ->
+                            item.toBundleIncludeLocalConfiguration(
+                                getSessionInterfaceVersion())))));
 
     addMediaItemsInternal(index, mediaItems);
   }
@@ -1382,12 +1406,18 @@ import org.checkerframework.checker.nullness.qual.NonNull;
 
     dispatchRemoteSessionTaskWithPlayerCommand(
         (iSession, seq) -> {
-          if (checkNotNull(connectedToken).getInterfaceVersion() >= 2) {
+          if (getSessionInterfaceVersion() >= 2) {
             iSession.replaceMediaItem(
-                controllerStub, seq, index, mediaItem.toBundleIncludeLocalConfiguration());
+                controllerStub,
+                seq,
+                index,
+                mediaItem.toBundleIncludeLocalConfiguration(getSessionInterfaceVersion()));
           } else {
             iSession.addMediaItemWithIndex(
-                controllerStub, seq, index + 1, mediaItem.toBundleIncludeLocalConfiguration());
+                controllerStub,
+                seq,
+                index + 1,
+                mediaItem.toBundleIncludeLocalConfiguration(getSessionInterfaceVersion()));
             iSession.removeMediaItem(controllerStub, seq, index);
           }
         });
@@ -1407,8 +1437,10 @@ import org.checkerframework.checker.nullness.qual.NonNull;
           IBinder mediaItemsBundleBinder =
               new BundleListRetriever(
                   BundleCollectionUtil.toBundleList(
-                      mediaItems, MediaItem::toBundleIncludeLocalConfiguration));
-          if (checkNotNull(connectedToken).getInterfaceVersion() >= 2) {
+                      mediaItems,
+                      item ->
+                          item.toBundleIncludeLocalConfiguration(getSessionInterfaceVersion())));
+          if (getSessionInterfaceVersion() >= 2) {
             iSession.replaceMediaItems(
                 controllerStub, seq, fromIndex, toIndex, mediaItemsBundleBinder);
           } else {
@@ -1670,7 +1702,7 @@ import org.checkerframework.checker.nullness.qual.NonNull;
     float newVolume = 0f;
     dispatchRemoteSessionTaskWithPlayerCommand(
         (iSession, seq) -> {
-          if (checkNotNull(connectedToken).getInterfaceVersion() >= 6) {
+          if (getSessionInterfaceVersion() >= 6) {
             iSession.mute(controllerStub, seq);
           } else {
             iSession.setVolume(controllerStub, seq, newVolume);
@@ -1695,7 +1727,7 @@ import org.checkerframework.checker.nullness.qual.NonNull;
     float unmuteVolume = playerInfo.unmuteVolume;
     dispatchRemoteSessionTaskWithPlayerCommand(
         (iSession, seq) -> {
-          if (checkNotNull(connectedToken).getInterfaceVersion() >= 6) {
+          if (getSessionInterfaceVersion() >= 6) {
             iSession.unmute(controllerStub, seq);
           } else {
             iSession.setVolume(controllerStub, seq, unmuteVolume);
@@ -2079,7 +2111,7 @@ import org.checkerframework.checker.nullness.qual.NonNull;
     if (!isConnected()) {
       return;
     }
-    if (checkNotNull(connectedToken).getInterfaceVersion() >= 8) {
+    if (getSessionInterfaceVersion() >= 8) {
       dispatchRemoteSessionTaskWithPlayerCommandAndWaitForFuture(
           (iSession, seq) ->
               iSession.setVideoSurfaceWithSize(controllerStub, seq, surface, width, height));
@@ -2743,6 +2775,10 @@ import org.checkerframework.checker.nullness.qual.NonNull;
     return iSession;
   }
 
+  private int getSessionInterfaceVersion() {
+    return checkNotNull(connectedToken).getInterfaceVersion();
+  }
+
   void notifyPeriodicSessionPositionInfoChanged(SessionPositionInfo sessionPositionInfo) {
     if (!isConnected()) {
       return;
@@ -2809,7 +2845,8 @@ import org.checkerframework.checker.nullness.qual.NonNull;
             customLayoutOriginal,
             result.sessionExtras,
             sessionCommands,
-            intersectedPlayerCommands);
+            intersectedPlayerCommands,
+            result.sessionInterfaceVersion);
     ImmutableMap.Builder<String, CommandButton> commandButtonsForMediaItems =
         new ImmutableMap.Builder<>();
     for (int i = 0; i < result.commandButtonsForMediaItems.size(); i++) {
@@ -2910,8 +2947,7 @@ import org.checkerframework.checker.nullness.qual.NonNull;
     if (!isConnected()) {
       return;
     }
-    boolean keepOldUnmuteVolumeForMutedSessions =
-        checkNotNull(connectedToken).getInterfaceVersion() < 6;
+    boolean keepOldUnmuteVolumeForMutedSessions = getSessionInterfaceVersion() < 6;
     if (pendingPlayerInfo != null) {
       pendingPlayerInfo =
           mergePlayerInfo(
@@ -3601,12 +3637,28 @@ import org.checkerframework.checker.nullness.qual.NonNull;
         resolvedButtons, sessionCommands, playerCommands);
   }
 
-  private static ImmutableList<CommandButton> resolveCustomLayout(
+  private ImmutableList<CommandButton> resolveCustomLayout(
       List<CommandButton> mediaButtonPreferences,
       List<CommandButton> customLayoutOriginal,
       Bundle sessionExtras,
       SessionCommands sessionCommands,
       Player.Commands playerCommands) {
+    return resolveCustomLayout(
+        mediaButtonPreferences,
+        customLayoutOriginal,
+        sessionExtras,
+        sessionCommands,
+        playerCommands,
+        getSessionInterfaceVersion());
+  }
+
+  private static ImmutableList<CommandButton> resolveCustomLayout(
+      List<CommandButton> mediaButtonPreferences,
+      List<CommandButton> customLayoutOriginal,
+      Bundle sessionExtras,
+      SessionCommands sessionCommands,
+      Player.Commands playerCommands,
+      int interfaceVersion) {
     if (!customLayoutOriginal.isEmpty()) {
       return CommandButton.copyWithUnavailableButtonsDisabled(
           customLayoutOriginal, sessionCommands, playerCommands);
@@ -3620,7 +3672,7 @@ import org.checkerframework.checker.nullness.qual.NonNull;
             && !playerCommands.containsAny(
                 Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM, Player.COMMAND_SEEK_TO_NEXT);
     return CommandButton.getCustomLayoutFromMediaButtonPreferences(
-        mediaButtonPreferences, backSlotAllowed, forwardSlotAllowed);
+        mediaButtonPreferences, backSlotAllowed, forwardSlotAllowed, interfaceVersion);
   }
 
   private static Commands createIntersectedCommandsEnsuringCommandReleaseAvailable(
@@ -3717,7 +3769,7 @@ import org.checkerframework.checker.nullness.qual.NonNull;
       if (videoSurfaceHolder != holder || !isConnected()) {
         return;
       }
-      if (checkNotNull(connectedToken).getInterfaceVersion() >= 8) {
+      if (getSessionInterfaceVersion() >= 8) {
         dispatchRemoteSessionTaskWithPlayerCommandAndWaitForFuture(
             (iSession, seq) -> iSession.onSurfaceSizeChanged(controllerStub, seq, width, height));
       }
@@ -3753,7 +3805,7 @@ import org.checkerframework.checker.nullness.qual.NonNull;
           || !isConnected()) {
         return;
       }
-      if (checkNotNull(connectedToken).getInterfaceVersion() >= 8) {
+      if (getSessionInterfaceVersion() >= 8) {
         dispatchRemoteSessionTaskWithPlayerCommandAndWaitForFuture(
             (iSession, seq) -> iSession.onSurfaceSizeChanged(controllerStub, seq, width, height));
       }
