@@ -139,7 +139,6 @@ import org.checkerframework.checker.initialization.qual.Initialized;
   @Nullable private final ComponentName broadcastReceiverComponentName;
   private boolean optOutOfMediaButtonPlaybackResumption;
   private final boolean playIfSuppressed;
-  private final HandlerThread compatSessionInteractionThread;
   private final Runnable callOnNotificationRefreshRequiredRunnable =
       this::callOnNotificationRefreshRequiredIfNeeded;
 
@@ -170,7 +169,8 @@ import org.checkerframework.checker.initialization.qual.Initialized;
       ImmutableList<CommandButton> mediaButtonPreferences,
       SessionCommands availableSessionCommands,
       Player.Commands availablePlayerCommands,
-      Bundle legacyExtras) {
+      Bundle legacyExtras,
+      Looper backgroundLooper) {
     this.sessionImpl = session;
     this.playIfSuppressed = playIfSuppressed;
     this.customLayout = customLayout;
@@ -186,8 +186,6 @@ import org.checkerframework.checker.initialization.qual.Initialized;
     connectionTimeoutHandler =
         new ConnectionTimeoutHandler(
             session.getApplicationHandler().getLooper(), connectedControllersManager);
-    compatSessionInteractionThread = new HandlerThread("MSLegacyStub:CompatSIT");
-    compatSessionInteractionThread.start();
 
     if (!mediaButtonPreferences.isEmpty()) {
       updateCustomLayoutAndLegacyExtrasForMediaButtonPreferences();
@@ -251,7 +249,7 @@ import org.checkerframework.checker.initialization.qual.Initialized;
             SDK_INT < 31 ? mediaButtonIntent : null,
             session.getSessionActivity(),
             /* sessionInfo= */ tokenExtras,
-            compatSessionInteractionThread.getLooper());
+            backgroundLooper);
     if (SDK_INT >= 31 && broadcastReceiverComponentName != null) {
       Api31.setMediaButtonBroadcastReceiver(sessionCompat, broadcastReceiverComponentName);
     }
@@ -488,7 +486,6 @@ import org.checkerframework.checker.initialization.qual.Initialized;
     }
     // No check for COMMAND_RELEASE needed as MediaControllers can always be released.
     sessionCompat.release();
-    compatSessionInteractionThread.quitSafely();
   }
 
   public MediaSessionCompat.Token getSessionToken() {
