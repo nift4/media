@@ -384,7 +384,8 @@ import java.util.concurrent.CopyOnWriteArraySet;
               playerId,
               builder.playbackLooperProvider,
               preloadConfiguration,
-              frameMetadataListener);
+              frameMetadataListener,
+              builder.avoidLoadingWhileEnded);
       Looper playbackLooper = internalPlayer.getPlaybackLooper();
 
       volume = 1;
@@ -2602,7 +2603,6 @@ import java.util.concurrent.CopyOnWriteArraySet;
     int currentIndex = getCurrentWindowIndexInternal(playbackInfo);
     long contentPositionMs = getContentPositionInternal(playbackInfo);
     Timeline oldTimeline = playbackInfo.timeline;
-    int currentMediaSourceCount = mediaSourceHolderSnapshots.size();
     pendingOperationAcks++;
     removeMediaSourceHolders(fromIndex, /* toIndexExclusive= */ toIndex);
     Timeline newTimeline = createMaskingTimeline();
@@ -2612,15 +2612,19 @@ import java.util.concurrent.CopyOnWriteArraySet;
             newTimeline,
             getPeriodPositionUsAfterTimelineChanged(
                 oldTimeline, newTimeline, currentIndex, contentPositionMs));
-    // Player transitions to STATE_ENDED if the current index is part of the removed tail.
-    final boolean transitionsToEnded =
-        newPlaybackInfo.playbackState != STATE_IDLE
-            && newPlaybackInfo.playbackState != STATE_ENDED
-            && fromIndex < toIndex
-            && toIndex == currentMediaSourceCount
-            && currentIndex >= newPlaybackInfo.timeline.getWindowCount();
-    if (transitionsToEnded) {
-      newPlaybackInfo = maskPlaybackState(newPlaybackInfo, STATE_ENDED);
+    if (newPlaybackInfo.playbackState != STATE_IDLE
+        && newPlaybackInfo.playbackState != STATE_ENDED
+        && currentIndex >= fromIndex
+        && currentIndex < toIndex) {
+      // Check if we need to transition to STATE_ENDED after the current item was removed and no
+      // subsequent period can be found.
+      Object periodUid = playbackInfo.periodId.periodUid;
+      int resolvedWindowIndex =
+          ExoPlayerImplInternal.resolveSubsequentPeriod(
+              window, period, repeatMode, shuffleModeEnabled, periodUid, oldTimeline, newTimeline);
+      if (resolvedWindowIndex == C.INDEX_UNSET) {
+        newPlaybackInfo = maskPlaybackState(newPlaybackInfo, STATE_ENDED);
+      }
     }
     internalPlayer.removeMediaSources(fromIndex, toIndex, shuffleOrder);
     return newPlaybackInfo;
