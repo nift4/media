@@ -22,9 +22,7 @@ import static java.lang.annotation.ElementType.TYPE_USE;
 import static java.lang.annotation.RetentionPolicy.SOURCE;
 
 import android.content.Context;
-import android.os.Binder;
 import android.os.Bundle;
-import android.os.IBinder;
 import android.view.accessibility.CaptioningManager;
 import androidx.annotation.CallSuper;
 import androidx.annotation.IntDef;
@@ -1599,7 +1597,6 @@ public class TrackSelectionParameters {
   private static final String FIELD_PREFERRED_VIDEO_LABELS = Util.intToStringMaxRadix(36);
   private static final String FIELD_PREFERRED_AUDIO_LABELS = Util.intToStringMaxRadix(37);
   private static final String FIELD_PREFERRED_TEXT_LABELS = Util.intToStringMaxRadix(38);
-  private static final String FIELD_IN_PROCESS_BINDER = Util.intToStringMaxRadix(39);
 
   /**
    * Defines a minimum field ID value for subclasses to use when implementing {@link #toBundle()}
@@ -1678,29 +1675,8 @@ public class TrackSelectionParameters {
     return bundle;
   }
 
-  /**
-   * Returns a {@link Bundle} containing the entirety of this {@link #TrackSelectionParameters}
-   * object without bundling it, for use in local process communication only.
-   */
-  @UnstableApi
-  public Bundle toBundleForLocalProcess() {
-    Bundle bundle = new Bundle();
-    bundle.putBinder(FIELD_IN_PROCESS_BINDER, new InProcessBinder());
-    return bundle;
-  }
-
   /** Construct an instance from a {@link Bundle} produced by {@link #toBundle()}. */
   public static TrackSelectionParameters fromBundle(Bundle bundle) {
-    IBinder inProcessBinder = bundle.getBinder(FIELD_IN_PROCESS_BINDER);
-    if (inProcessBinder instanceof InProcessBinder) {
-      return ((InProcessBinder) inProcessBinder).getTrackSelectionParameters();
-    }
     return new Builder(bundle).build();
-  }
-
-  private final class InProcessBinder extends Binder {
-    public TrackSelectionParameters getTrackSelectionParameters() {
-      return TrackSelectionParameters.this;
-    }
   }
 }
