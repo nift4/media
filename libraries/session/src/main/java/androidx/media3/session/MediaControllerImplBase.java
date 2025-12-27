@@ -2897,12 +2897,7 @@ import org.checkerframework.checker.nullness.qual.NonNull;
       return;
     }
     try {
-      iSession.onControllerResult(
-          controllerStub,
-          seq,
-          iSession instanceof MediaSessionStub
-              ? result.toBundleForLocalProcess()
-              : result.toBundle());
+      iSession.onControllerResult(controllerStub, seq, result.toBundle());
     } catch (RemoteException e) {
       Log.w(TAG, "Error in sending");
     }
