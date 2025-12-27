@@ -862,9 +862,7 @@ import org.checkerframework.checker.initialization.qual.Initialized;
               controller -> {
                   ListenableFuture<SessionResult> resultFuture =
                           sessionImpl.handleMediaControllerPlayRequest(
-                                  controller,
-                                  /* callOnPlayerInteractionFinished= */ true,
-                                  /* mustStartForegroundService= */ false);
+                                  controller, /* callOnPlayerInteractionFinished= */ true);
                   Futures.addCallback(
                           resultFuture,
                           new FutureCallback<SessionResult>() {
