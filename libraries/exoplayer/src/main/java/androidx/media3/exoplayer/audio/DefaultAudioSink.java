@@ -543,7 +543,7 @@ public final class DefaultAudioSink implements AudioSink {
   public static final float MIN_PLAYBACK_SPEED = 0.1f;
 
   /** The maximum allowed playback speed. Higher values will be constrained to fall in range. */
-  public static final float MAX_PLAYBACK_SPEED = 8f;
+  public static final float MAX_PLAYBACK_SPEED = 4f;
 
   /** The minimum allowed pitch factor. Lower values will be constrained to fall in range. */
   public static final float MIN_PITCH = 0.1f;
@@ -1204,8 +1204,9 @@ public final class DefaultAudioSink implements AudioSink {
     } catch (InitializationException initialFailure) {
       // Retry with a smaller buffer size.
       if (configuration.bufferSize > AUDIO_TRACK_SMALLER_BUFFER_RETRY_SIZE) {
-        Configuration retryConfiguration =
-            configuration.copyWithBufferSize(AUDIO_TRACK_SMALLER_BUFFER_RETRY_SIZE);
+          Configuration retryConfiguration =
+                  configuration.copyWithBufferSize(AUDIO_TRACK_SMALLER_BUFFER_RETRY_SIZE +
+                          configuration.outputPcmFrameSize - (AUDIO_TRACK_SMALLER_BUFFER_RETRY_SIZE % configuration.outputPcmFrameSize));
         try {
           AudioTrack audioTrack = buildAudioTrack(retryConfiguration);
           configuration = retryConfiguration;
