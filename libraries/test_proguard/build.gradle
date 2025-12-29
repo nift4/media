@@ -44,7 +44,7 @@ android {
             minifyEnabled true
             proguardFiles = [
                 'proguard-rules.txt',
-                getDefaultProguardFile('proguard-android.txt')
+                getDefaultProguardFile('proguard-android-optimize.txt')
             ]
             testProguardFile 'proguard-test-rules.txt'
         }

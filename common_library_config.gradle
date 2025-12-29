@@ -22,7 +22,9 @@ android {
     defaultConfig {
         minSdkVersion project.ext.minSdkVersion
         targetSdkVersion project.ext.targetSdkVersion
-        consumerProguardFiles 'proguard-rules.txt'
+        if (file("proguard-rules.txt").exists()) {
+            consumerProguardFiles 'proguard-rules.txt'
+        }
         testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
         aarMetadata {
             minCompileSdk = project.ext.compileSdkVersion
