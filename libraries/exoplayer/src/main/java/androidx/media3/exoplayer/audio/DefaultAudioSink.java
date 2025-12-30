@@ -71,6 +71,8 @@ import androidx.media3.extractor.DtsUtil;
 import androidx.media3.extractor.ExtractorUtil;
 import androidx.media3.extractor.MpegAudioUtil;
 import androidx.media3.extractor.OpusUtil;
+
+import com.google.common.base.Function;
 import com.google.common.collect.ImmutableList;
 import com.google.errorprone.annotations.CanIgnoreReturnValue;
 import java.lang.annotation.Documented;
@@ -330,6 +332,7 @@ public final class DefaultAudioSink implements AudioSink {
     @Nullable private androidx.media3.common.audio.AudioProcessorChain audioProcessorChain;
     private int pcmEncodingRestrictionMode;
     private boolean enableAudioTrackPlaybackParams;
+    private Supplier<Boolean> canReuse = () -> true;
 
     private boolean buildCalled;
     private AudioTrackBufferSizeProvider audioTrackBufferSizeProvider;
@@ -423,6 +426,11 @@ public final class DefaultAudioSink implements AudioSink {
       this.pcmEncodingRestrictionMode =
           enableFloatOutput ? PCM_ENCODING_INT16_FLOAT32_ONLY : PCM_ENCODING_INT16_ONLY;
       return this;
+    }
+
+    public Builder setCanReuse(Supplier<Boolean> canReuse) {
+        this.canReuse = canReuse;
+        return this;
     }
 
     /**
@@ -618,6 +626,7 @@ public final class DefaultAudioSink implements AudioSink {
   private @MonotonicNonNull StreamEventCallbackV29 offloadStreamEventCallbackV29;
   private final PendingExceptionHolder<InitializationException>
       initializationExceptionPendingExceptionHolder;
+  private Supplier<Boolean> canReuse = () -> true;
   private final PendingExceptionHolder<WriteException> writeExceptionPendingExceptionHolder;
   private final AudioTrackBufferSizeProvider audioTrackBufferSizeProvider;
   private final AudioOffloadSupportProvider audioOffloadSupportProvider;
@@ -689,6 +698,7 @@ public final class DefaultAudioSink implements AudioSink {
     preferAudioTrackPlaybackParams = SDK_INT >= 23 && builder.enableAudioTrackPlaybackParams;
     offloadMode = OFFLOAD_MODE_DISABLED;
     audioTrackBufferSizeProvider = builder.audioTrackBufferSizeProvider;
+    canReuse = builder.canReuse;
     audioOffloadSupportProvider = checkNotNull(builder.audioOffloadSupportProvider);
     audioTrackPositionTracker = new AudioTrackPositionTracker(new PositionTrackerListener());
     channelMappingAudioProcessor = new ChannelMappingAudioProcessor();
@@ -1047,7 +1057,7 @@ public final class DefaultAudioSink implements AudioSink {
       if (!drainToEndOfStream()) {
         // There's still pending data in audio processors to write to the track.
         return false;
-      } else if (!pendingConfiguration.canReuseAudioTrack(configuration)) {
+      } else if (!pendingConfiguration.canReuseAudioTrack(configuration) || !canReuse.get()) {
         playPendingData();
         if (hasPendingData()) {
           // We're waiting for playout on the current audio track to finish.
