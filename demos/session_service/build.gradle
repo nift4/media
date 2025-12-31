@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 plugins {
-    id "com.google.protobuf" version "0.9.5"
+    id "com.google.protobuf" version "0.9.6"
 }
 apply from: "$gradle.ext.androidxMediaSettingsDir/common_library_config.gradle"
 apply plugin: 'kotlin-android'
@@ -23,12 +23,8 @@ android {
     compileSdk project.ext.compileSdkVersion
 
     compileOptions {
-        sourceCompatibility JavaVersion.VERSION_1_8
-        targetCompatibility JavaVersion.VERSION_1_8
-    }
-
-    kotlinOptions {
-        jvmTarget = '1.8'
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
     }
 
     defaultConfig {
@@ -68,9 +64,9 @@ protobuf {
 
 dependencies {
     implementation 'androidx.core:core-ktx:' + androidxCoreVersion
-    implementation 'androidx.datastore:datastore:1.1.5'
-    implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-guava:1.9.0'
-    implementation 'com.google.protobuf:protobuf-java:4.31.1'
+    implementation 'androidx.datastore:datastore:1.2.0'
+    implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-guava:1.10.2'
+    implementation 'com.google.protobuf:protobuf-java:4.33.2'
     implementation project(modulePrefix + 'lib-cast')
     implementation project(modulePrefix + 'lib-common-ktx')
     implementation project(modulePrefix + 'lib-exoplayer')

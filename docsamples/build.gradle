@@ -19,10 +19,6 @@ apply plugin: 'org.jetbrains.kotlin.plugin.compose'
 android {
     namespace 'androidx.media3.docsamples'
 
-    kotlinOptions {
-        jvmTarget = '1.8'
-    }
-
     defaultConfig {
         minSdkVersion 23
     }
@@ -32,5 +28,5 @@ dependencies {
     implementation project(modulePrefix + 'lib-exoplayer')
     implementation 'androidx.annotation:annotation:' + androidxAnnotationVersion
     implementation 'androidx.appcompat:appcompat:' + androidxAppCompatVersion
-    implementation 'androidx.activity:activity-compose:1.9.0'
+    implementation 'androidx.activity:activity-compose:1.12.2'
 }

@@ -26,7 +26,7 @@ android {
 dependencies {
     api project(modulePrefix + 'lib-common')
     implementation 'androidx.annotation:annotation:' + androidxAnnotationVersion
-    implementation 'androidx.leanback:leanback:1.0.0'
+    implementation 'androidx.leanback:leanback:1.2.0'
     compileOnly 'org.jetbrains.kotlin:kotlin-annotations-jvm:' + kotlinAnnotationsVersion
 }
 
