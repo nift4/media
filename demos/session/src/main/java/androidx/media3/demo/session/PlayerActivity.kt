@@ -29,9 +29,6 @@ import android.widget.TextView
 import androidx.annotation.OptIn
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.lifecycleScope
-import androidx.lifecycle.repeatOnLifecycle
 import androidx.media3.cast.MediaRouteButtonViewProvider
 import androidx.media3.common.C.TRACK_TYPE_TEXT
 import androidx.media3.common.MediaItem
@@ -45,6 +42,8 @@ import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import androidx.media3.ui.PlayerView
 import com.google.common.util.concurrent.ListenableFuture
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.guava.await
 import kotlinx.coroutines.launch
@@ -64,8 +63,8 @@ class PlayerActivity : AppCompatActivity() {
   @OptIn(UnstableApi::class) // PlayerView.hideController
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
-    lifecycleScope.launch {
-      lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+    CoroutineScope(Dispatchers.Main).launch {
+      //lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
         try {
           initializeController()
           awaitCancellation()
@@ -73,7 +72,7 @@ class PlayerActivity : AppCompatActivity() {
           playerView.player = null
           releaseController()
         }
-      }
+      //}
     }
 
     setContentView(R.layout.activity_player)
