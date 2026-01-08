@@ -3082,7 +3082,8 @@ import java.util.concurrent.CopyOnWriteArraySet;
     for (int i = fromIndex; i < toIndex; i++) {
       MediaSourceHolderSnapshot snapshot = mediaSourceHolderSnapshots.get(i);
       snapshot.updateTimeline(
-          new TimelineWithUpdatedMediaItem(snapshot.getTimeline(), mediaItems.get(i - fromIndex)));
+          TimelineWithUpdatedMediaItem.create(
+              snapshot.getTimeline(), mediaItems.get(i - fromIndex)));
     }
     Timeline newTimeline = createMaskingTimeline();
     PlaybackInfo newPlaybackInfo = playbackInfo.copyWithTimeline(newTimeline);
