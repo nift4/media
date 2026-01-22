@@ -29,7 +29,6 @@ import androidx.core.app.NotificationManagerCompat
 import androidx.datastore.core.DataStore
 import androidx.datastore.core.Serializer
 import androidx.datastore.dataStore
-import androidx.lifecycle.lifecycleScope
 import androidx.media3.cast.CastPlayer
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.Player
@@ -139,7 +138,7 @@ open class DemoPlaybackService : MediaLibraryService() {
   @OptIn(UnstableApi::class) // Player.listen
   private fun initializeSessionAndPlayer() {
     val player = buildPlayer()
-    lifecycleScope.launch {
+    CoroutineScope(Dispatchers.Main).launch {
       player.listenTo(Player.EVENT_IS_PLAYING_CHANGED, Player.EVENT_MEDIA_ITEM_TRANSITION) {
         storeCurrentMediaItem()
       }
