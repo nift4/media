@@ -89,5 +89,5 @@ dependencies {
     withMediaPipeImplementation 'com.google.flogger:flogger:latest.release'
     withMediaPipeImplementation 'com.google.flogger:flogger-system-backend:latest.release'
     withMediaPipeImplementation 'com.google.code.findbugs:jsr305:latest.release'
-    withMediaPipeImplementation 'com.google.protobuf:protobuf-javalite:4.33.2'
+    withMediaPipeImplementation 'com.google.protobuf:protobuf-javalite:4.33.4'
 }
