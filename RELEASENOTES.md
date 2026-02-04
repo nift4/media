@@ -231,8 +231,16 @@ This release includes the following changes since
         preferred orientation for linear ads. If you want to join the alpha
         testing group, please reach out to your account partner.
 *   Session:
+<<<<<<< HEAD
     *   Fix a bug where large arrays in `MediaMetadata.artworkData` can crash
         the app.
+=======
+    *   Fix issue where system UI button placement workaround negatively affects
+        other UI surface like Android Auto or manufacturers not needing the
+        workaround ([#3041]()).
+    *   Fix bug where large arrays in `MediaMetadata.artworkData` can crash the
+        app.
+>>>>>>> eeb5a2a398 (Fix workaround logic for system UI gaps)
     *   Use type int for `@Player.Command` argument in the `ActionFactory`
         interface ([#2933](https://github.com/androidx/media/issues/2933)).
     *   Make `MediaSessionService` and `MediaLibraryService` a
