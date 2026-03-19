@@ -45,6 +45,7 @@
 *   IMA extension:
 *   Session:
 <<<<<<< HEAD
+<<<<<<< HEAD
     *   Fix notification artwork icon scaling on Android Q
         ([#3084](https://github.com/androidx/media/issues/3084)).
 =======
@@ -64,6 +65,11 @@
     *   Fix bug where own process wasn't marked with `Controller.isTrusted()` on
         API 27 or before when connecting via platform controllers.
 >>>>>>> a90ff4a5be (Fix isTrusted for own app on API<28)
+=======
+    *   Workaround SysUI bug on API 29 where media session artwork in a
+        particular size can crash SysUI and force the device to reboot
+        ([#3118](https://github.com/androidx/media/issues/3118)).
+>>>>>>> 2d454f57a4 (Fix SysUI crash/device reboot issue on API 29 for specific bitmap size)
 *   UI:
     *   Hide playback position from the accessibility service to prevent
         continuous announcement update when `PlayerControlView` is visible.
