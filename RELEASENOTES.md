@@ -44,8 +44,26 @@
         describes.
 *   IMA extension:
 *   Session:
+<<<<<<< HEAD
     *   Fix notification artwork icon scaling on Android Q
         ([#3084](https://github.com/androidx/media/issues/3084)).
+=======
+    *   Fix bug where 'ForegroundServiceStartNotAllowedException' wasn't
+        propagated across thread boundaries in case the application thread is
+        not the main thread
+        ([#2499](https://github.com/androidx/media/issues/2499)).
+    *   Fix bug where `COMMAND_SEEK_TO_MEDIA_ITEM` is not available in a
+        `MediaController` when connecting to a platform-only session that
+        supports seeking to other items but no playlist modifications.
+    *   Add support to override package name while creating MediaSession via a
+        new API `MediaSession.Builder#setPackageNameOverride`. The caller must
+        have `android.permission.OVERRIDE_MEDIA_SESSION_OWNER` permission to
+        override the package name of the session.
+    *   Fix issue where `MediaController` can't set media items on platform
+        media sessions that don't allow `PREPARE_FROM` actions.
+    *   Fix bug where own process wasn't marked with `Controller.isTrusted()` on
+        API 27 or before when connecting via platform controllers.
+>>>>>>> a90ff4a5be (Fix isTrusted for own app on API<28)
 *   UI:
     *   Hide playback position from the accessibility service to prevent
         continuous announcement update when `PlayerControlView` is visible.
