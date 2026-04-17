@@ -28,6 +28,7 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.robolectric.Shadows.shadowOf;
 
+import android.content.Context;
 import android.media.AudioManager;
 import android.os.Handler;
 import android.os.Looper;
@@ -90,7 +91,7 @@ public abstract class ScrubbingModeContractTest {
   private @MonotonicNonNull Player player;
 
   public ScrubbingModeContractTest() {
-    audioManager = getApplicationContext().getSystemService(AudioManager.class);
+    audioManager = (AudioManager) getApplicationContext().getSystemService(Context.AUDIO_SERVICE);
   }
 
   @After

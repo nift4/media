@@ -31,7 +31,7 @@ public final class Av1ModuleProguard {
    * calls to VideoDecoderOutputBuffer, DecoderInputBuffer, Dav1dDecoder.
    */
   public static void createDav1dDecoder() throws Exception {
-    Dav1dDecoder decoder =
+      Dav1dDecoder decoder =
         new Dav1dDecoder(
             /* numInputBuffers= */ 1,
             /* numOutputBuffers= */ 1,
@@ -39,6 +39,6 @@ public final class Av1ModuleProguard {
             /* threads= */ 1,
             /* maxFrameDelay= */ 2,
             /* useCustomAllocator= */ false);
-    decoder.release();
+    //decoder.release();
   }
 }

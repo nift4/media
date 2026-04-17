@@ -20,6 +20,7 @@ import android.annotation.SuppressLint;
 import android.content.Context;
 import android.content.pm.PackageManager;
 import android.os.Looper;
+import android.os.Process;
 import android.os.PowerManager;
 import android.os.PowerManager.WakeLock;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -138,7 +139,7 @@ public final class WakeLockManager {
     @SuppressLint("WakelockTimeout")
     private synchronized void updateWakeLock(boolean enabled, boolean stayAwake) {
       if (enabled && wakeLock == null) {
-        if (applicationContext.checkSelfPermission(Manifest.permission.WAKE_LOCK)
+        if (applicationContext.checkPermission(Manifest.permission.WAKE_LOCK, Process.myPid(), Process.myUid())
             != PackageManager.PERMISSION_GRANTED) {
           Log.w(TAG, "WAKE_LOCK permission not granted, can't acquire wake lock for playback");
           return;

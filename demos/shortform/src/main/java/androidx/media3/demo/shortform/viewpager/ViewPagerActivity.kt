@@ -16,8 +16,10 @@
 package androidx.media3.demo.shortform.viewpager
 
 import android.os.Bundle
+import androidx.annotation.OptIn
 import androidx.media3.common.util.Log
 import androidx.appcompat.app.AppCompatActivity
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.demo.shortform.MainActivity
 import androidx.media3.demo.shortform.MediaItemDatabase
 import androidx.media3.demo.shortform.R
@@ -33,7 +35,7 @@ class ViewPagerActivity : AppCompatActivity() {
     private const val TAG = "ViewPagerActivity"
   }
 
-  override fun onCreate(savedInstanceState: Bundle?) {
+  @OptIn(UnstableApi::class) override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
     setContentView(R.layout.activity_view_pager)
     numberOfPlayers = intent.getIntExtra(MainActivity.NUM_PLAYERS_EXTRA, numberOfPlayers)

@@ -42,9 +42,10 @@ import kotlin.math.min
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.guava.future
+import java.util.prefs.Preferences
 
 /** A [MediaLibraryService.MediaLibrarySession.Callback] implementation. */
-open class DemoMediaLibrarySessionCallback(val service: DemoPlaybackService) :
+@UnstableApi open class DemoMediaLibrarySessionCallback(val service: DemoPlaybackService) :
   MediaLibraryService.MediaLibrarySession.Callback {
 
   init {
@@ -201,8 +202,8 @@ open class DemoMediaLibrarySessionCallback(val service: DemoPlaybackService) :
     controller: MediaSession.ControllerInfo,
     isForPlayback: Boolean,
   ): ListenableFuture<MediaItemsWithStartPosition> {
-    return CoroutineScope(Dispatchers.Unconfined).future {
-      service.retrieveLastStoredMediaItem()?.apply {
+    return CoroutineScope(Dispatchers.Unconfined).future {/*
+      service.retrieveLastStoredMediaItem()?.apply<Preferences> {
         if (isForPlayback) {
           maybeExpandSingleItemToPlaylist(
               mediaItem = MediaItem.Builder().setMediaId(this.mediaId).build(),
@@ -249,6 +250,7 @@ open class DemoMediaLibrarySessionCallback(val service: DemoPlaybackService) :
           }
         }
       }
+     */
       throw IllegalStateException("previous media id not found")
     }
   }

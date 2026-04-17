@@ -58,25 +58,6 @@ open class DemoPlaybackService : MediaLibraryService() {
     private const val CHANNEL_ID = "demo_session_notification_channel_id"
   }
 
-  object PreferenceDataStore {
-    private val Context._dataStore: DataStore<Preferences> by
-      dataStore(
-        fileName = "preferences.pb",
-        serializer =
-          object : Serializer<Preferences> {
-            override val defaultValue: Preferences = Preferences.getDefaultInstance()
-
-            override suspend fun readFrom(input: InputStream): Preferences =
-              Preferences.parseFrom(input)
-
-            override suspend fun writeTo(preferences: Preferences, output: OutputStream) =
-              preferences.writeTo(output)
-          },
-      )
-
-    fun get(context: Context) = context.applicationContext._dataStore
-  }
-
   /**
    * Returns the single top session activity. It is used by the notification when the app task is
    * active and an activity is in the fore or background.
@@ -109,7 +90,7 @@ open class DemoPlaybackService : MediaLibraryService() {
    *
    * This method is called when the session is built by the [DemoPlaybackService].
    */
-  protected open fun createLibrarySessionCallback(): MediaLibrarySession.Callback {
+  @OptIn(UnstableApi::class) protected open fun createLibrarySessionCallback(): MediaLibrarySession.Callback {
     return DemoMediaLibrarySessionCallback(this)
   }
 
@@ -140,7 +121,7 @@ open class DemoPlaybackService : MediaLibraryService() {
     val player = buildPlayer()
     CoroutineScope(Dispatchers.Main).launch {
       player.listenTo(Player.EVENT_IS_PLAYING_CHANGED, Player.EVENT_MEDIA_ITEM_TRANSITION) {
-        storeCurrentMediaItem()
+        //storeCurrentMediaItem()
       }
     }
 
@@ -159,7 +140,7 @@ open class DemoPlaybackService : MediaLibraryService() {
     exoPlayer.addAnalyticsListener(EventLogger())
     return CastPlayer.Builder(/* context= */ this).setLocalPlayer(exoPlayer).build()
   }
-
+/*
   @OptIn(UnstableApi::class) // BitmapLoader
   private fun storeCurrentMediaItem() {
     val mediaID = mediaLibrarySession.player.currentMediaItem?.mediaId
@@ -204,6 +185,7 @@ open class DemoPlaybackService : MediaLibraryService() {
     val preferences = PreferenceDataStore.get(this).data.first()
     return if (preferences != Preferences.getDefaultInstance()) preferences else null
   }
+    */
 
   @OptIn(UnstableApi::class) // MediaSessionService.Listener
   private inner class MediaSessionServiceListener : Listener {

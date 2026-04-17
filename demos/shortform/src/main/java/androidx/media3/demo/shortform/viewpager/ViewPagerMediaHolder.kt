@@ -33,6 +33,7 @@ class ViewPagerMediaHolder(itemView: View, private val playerPool: PlayerPool) :
   private var exoPlayer: ExoPlayer? = null
   private var isInView: Boolean = false
   private var pendingPlayRequestUponSetupPlayer: Boolean = false
+  var bindingAdapterPosition = 3
 
   private lateinit var mediaSource: MediaSource
 
