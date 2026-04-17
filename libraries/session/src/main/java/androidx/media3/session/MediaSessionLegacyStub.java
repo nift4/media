@@ -2193,7 +2193,8 @@ import org.checkerframework.checker.initialization.qual.Initialized;
         || Build.MANUFACTURER.equals("vivo")
         || Build.MANUFACTURER.equals("Sony")
         || Build.MANUFACTURER.equals("Nothing")
-        || Build.MANUFACTURER.equals("unknown");
+        || Build.MANUFACTURER.equals("unknown")
+        || Build.MANUFACTURER.equals("Unihertz");
   }
 
   /** Describes a legacy error. */

@@ -244,7 +244,7 @@ public final class MediaSessionManager {
       // but it's hidden so we cannot use it.
       int remoteUserUid = userInfo.getUid();
       try {
-        if (SDK_INT == 23 && userInfo.getPackageName().equals(RemoteUserInfo.LEGACY_CONTROLLER)) {
+        if (SDK_INT <= 23 && userInfo.getPackageName().equals(RemoteUserInfo.LEGACY_CONTROLLER)) {
           // On API 23, there is no package name or caller propagation to allow caller checks for
           // framework controllers, and the best we can do is to simply trust all controllers.
           return true;
