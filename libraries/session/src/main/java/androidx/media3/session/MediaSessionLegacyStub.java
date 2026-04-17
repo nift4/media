@@ -1280,7 +1280,7 @@ import org.checkerframework.checker.initialization.qual.Initialized;
                     /* defaultValue= */ false)
                 != hadNextReservation);
     if (extrasChanged) {
-      getSessionCompat().setExtras(legacyExtras);
+      sessionCompat.setExtras(legacyExtras);
     }
   }
 
