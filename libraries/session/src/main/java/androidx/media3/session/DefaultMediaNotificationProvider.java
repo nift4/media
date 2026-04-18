@@ -27,12 +27,14 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import static com.google.common.base.Preconditions.checkState;
 import static java.lang.Integer.max;
 
+import android.annotation.SuppressLint;
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.content.Context;
 import android.content.res.Resources;
 import android.graphics.Bitmap;
+import android.os.Build;
 import android.os.Bundle;
 import androidx.annotation.DrawableRes;
 import androidx.annotation.Nullable;
@@ -670,7 +672,15 @@ public class DefaultMediaNotificationProvider implements MediaNotification.Provi
     try {
       int rightIconSizeId = res.getIdentifier("notification_right_icon_size", "dimen", "android");
       int iconSize = res.getDimensionPixelSize(rightIconSizeId);
-      if (SDK_INT < 31) {
+      boolean isOneUi;
+      try {
+          //noinspection PrivateApi
+          Build.VERSION.class.getDeclaredField("SEM_PLATFORM_INT");
+          isOneUi = true;
+      } catch (NoSuchFieldException e) {
+          isOneUi = false;
+      }
+      if (SDK_INT < 31 || isOneUi) {
         int mediaImageMaxHeightId =
             res.getIdentifier("notification_media_image_max_height", "dimen", "android");
         int mediaImageMaxHeight = res.getDimensionPixelSize(mediaImageMaxHeightId);
