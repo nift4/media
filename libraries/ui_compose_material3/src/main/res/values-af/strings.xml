@@ -14,11 +14,4 @@
     <item quantity="one">Spring %d sekonde vorentoe</item>
     <item quantity="other">Spring %d sekondes vorentoe</item>
   </plurals>
-  <string name="repeat_button_repeat_off">Huidige modus: herhaal niks. Wissel herhaalmodus.</string>
-  <string name="repeat_button_repeat_one">Huidige modus: herhaal een. Wissel herhaalmodus.</string>
-  <string name="repeat_button_repeat_all">Huidige modus: herhaal alles. Wissel herhaalmodus.</string>
-  <string name="shuffle_button_shuffle_on">Skommelmodus is geaktiveer.</string>
-  <string name="shuffle_button_shuffle_off">Skommelmodus is gedeaktiveer.</string>
-  <string name="mute_button_shown_unmuted">Demp</string>
-  <string name="mute_button_shown_muted">Ontdemp</string>
 </resources>

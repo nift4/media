@@ -27,12 +27,14 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import static com.google.common.base.Preconditions.checkState;
 import static java.lang.Integer.max;
 
+import android.annotation.SuppressLint;
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.content.Context;
 import android.content.res.Resources;
 import android.graphics.Bitmap;
+import android.os.Build;
 import android.os.Bundle;
 import androidx.annotation.DrawableRes;
 import androidx.annotation.Nullable;
@@ -52,7 +54,6 @@ import androidx.media3.session.MediaStyleNotificationHelper.MediaStyle;
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
-import com.google.common.primitives.ImmutableIntArray;
 import com.google.common.util.concurrent.FutureCallback;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
@@ -314,16 +315,6 @@ public class DefaultMediaNotificationProvider implements MediaNotification.Provi
       Callback onNotificationChangedCallback) {
     ensureNotificationChannel();
 
-    ImmutableList.Builder<CommandButton> mediaButtonPreferencesWithEnabledCommandButtonsOnly =
-        new ImmutableList.Builder<>();
-    for (int i = 0; i < mediaButtonPreferences.size(); i++) {
-      CommandButton button = mediaButtonPreferences.get(i);
-      if (button.sessionCommand != null
-          && button.sessionCommand.commandCode == SessionCommand.COMMAND_CODE_CUSTOM
-          && button.isEnabled) {
-        mediaButtonPreferencesWithEnabledCommandButtonsOnly.add(mediaButtonPreferences.get(i));
-      }
-    }
     Player player = mediaSession.getPlayer();
     NotificationCompat.Builder builder = new NotificationCompat.Builder(context, channelId);
     int notificationId = notificationIdProvider.getNotificationId(mediaSession);
@@ -335,7 +326,7 @@ public class DefaultMediaNotificationProvider implements MediaNotification.Provi
             getMediaButtons(
                 mediaSession,
                 player.getAvailableCommands(),
-                mediaButtonPreferencesWithEnabledCommandButtonsOnly.build(),
+                mediaButtonPreferences,
                 !Util.shouldShowPlayButton(
                     player, mediaSession.getShowPlayButtonIfPlaybackIsSuppressed())),
             builder,
@@ -479,10 +470,7 @@ public class DefaultMediaNotificationProvider implements MediaNotification.Provi
 
     ImmutableList.Builder<CommandButton> commandButtons = new ImmutableList.Builder<>();
     if (hasCustomBackButton) {
-      commandButtons.add(
-          customLayout
-              .get(nextCustomLayoutIndex++)
-              .copyWithSlots(ImmutableIntArray.of(CommandButton.SLOT_BACK)));
+      commandButtons.add(customLayout.get(nextCustomLayoutIndex++));
     } else if (playerCommands.containsAny(
         COMMAND_SEEK_TO_PREVIOUS, COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM)) {
       commandButtons.add(
@@ -508,10 +496,7 @@ public class DefaultMediaNotificationProvider implements MediaNotification.Provi
       }
     }
     if (hasCustomForwardButton) {
-      commandButtons.add(
-          customLayout
-              .get(nextCustomLayoutIndex++)
-              .copyWithSlots(ImmutableIntArray.of(CommandButton.SLOT_FORWARD)));
+      commandButtons.add(customLayout.get(nextCustomLayoutIndex++));
     } else if (playerCommands.containsAny(COMMAND_SEEK_TO_NEXT, COMMAND_SEEK_TO_NEXT_MEDIA_ITEM)) {
       commandButtons.add(
           new CommandButton.Builder(CommandButton.ICON_NEXT)
@@ -520,8 +505,7 @@ public class DefaultMediaNotificationProvider implements MediaNotification.Provi
               .build());
     }
     for (int i = nextCustomLayoutIndex; i < customLayout.size(); i++) {
-      commandButtons.add(
-          customLayout.get(i).copyWithSlots(ImmutableIntArray.of(CommandButton.SLOT_OVERFLOW)));
+      commandButtons.add(customLayout.get(i));
     }
     return commandButtons.build();
   }
@@ -670,7 +654,15 @@ public class DefaultMediaNotificationProvider implements MediaNotification.Provi
     try {
       int rightIconSizeId = res.getIdentifier("notification_right_icon_size", "dimen", "android");
       int iconSize = res.getDimensionPixelSize(rightIconSizeId);
-      if (SDK_INT < 31) {
+      boolean isOneUi;
+      try {
+          //noinspection PrivateApi
+          Build.VERSION.class.getDeclaredField("SEM_PLATFORM_INT");
+          isOneUi = true;
+      } catch (NoSuchFieldException e) {
+          isOneUi = false;
+      }
+      if (SDK_INT < 31 || isOneUi) {
         int mediaImageMaxHeightId =
             res.getIdentifier("notification_media_image_max_height", "dimen", "android");
         int mediaImageMaxHeight = res.getDimensionPixelSize(mediaImageMaxHeightId);

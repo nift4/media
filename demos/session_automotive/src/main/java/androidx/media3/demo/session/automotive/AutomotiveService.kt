@@ -40,7 +40,7 @@ class AutomotiveService : DemoPlaybackService() {
     return exoPlayer
   }
 
-  override fun createLibrarySessionCallback(): MediaLibrarySession.Callback {
+  @OptIn(UnstableApi::class) override fun createLibrarySessionCallback(): MediaLibrarySession.Callback {
     return object : DemoMediaLibrarySessionCallback(this@AutomotiveService) {
 
       @OptIn(UnstableApi::class)

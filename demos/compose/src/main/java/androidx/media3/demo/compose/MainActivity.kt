@@ -46,7 +46,7 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.demo.compose.buttons.ExtraControls
 import androidx.media3.demo.compose.buttons.MinimalControls
-import androidx.media3.demo.compose.data.videos
+//import androidx.media3.demo.compose.data.videos
 import androidx.media3.demo.compose.indicator.HorizontalLinearProgressIndicator
 import androidx.media3.demo.compose.layout.CONTENT_SCALES
 import androidx.media3.demo.compose.layout.noRippleClickable
@@ -100,11 +100,11 @@ fun ComposeDemoApp(modifier: Modifier = Modifier) {
 
 private fun initializePlayer(context: Context): Player =
   ExoPlayer.Builder(context).build().apply {
-    setMediaItems(
+    /*setMediaItems(
       videos.mapIndexed { idx, uri ->
         MediaItem.Builder().setUri(uri).setMediaId(idx.toString()).build()
       }
-    )
+    )*/
     prepare()
   }
 

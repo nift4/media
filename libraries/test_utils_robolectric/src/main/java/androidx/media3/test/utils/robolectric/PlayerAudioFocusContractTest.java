@@ -28,6 +28,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.robolectric.Shadows.shadowOf;
 
+import android.content.Context;
 import android.media.AudioManager;
 import android.os.Handler;
 import android.os.Looper;
@@ -87,7 +88,7 @@ public abstract class PlayerAudioFocusContractTest {
   private @MonotonicNonNull Player player;
 
   public PlayerAudioFocusContractTest() {
-    audioManager = getApplicationContext().getSystemService(AudioManager.class);
+    audioManager = (AudioManager)getApplicationContext().getSystemService(Context.AUDIO_SERVICE);
   }
 
   @After

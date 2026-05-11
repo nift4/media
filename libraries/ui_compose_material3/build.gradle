@@ -39,6 +39,10 @@ android {
             includeAndroidResources = true
         }
     }
+    lint {
+        informational += "ExtraTranslation"
+        informational += "MissingQuantity"
+    }
     kotlin {
         compilerOptions {
             jvmTarget.set(JvmTarget.JVM_1_8)
@@ -59,7 +63,7 @@ dependencies {
     api 'androidx.compose.material3:material3'
     api 'androidx.compose.material:material-icons-extended'
     api 'androidx.compose.ui:ui-tooling-preview'
-    api 'androidx.lifecycle:lifecycle-runtime-compose:' + androidxLifecycleVersion
+    //api 'androidx.lifecycle:lifecycle-runtime-compose:' + androidxLifecycleVersion
     api 'com.google.android.material:material:' + androidxMaterialVersion
 
     testImplementation 'androidx.compose.ui:ui-test'

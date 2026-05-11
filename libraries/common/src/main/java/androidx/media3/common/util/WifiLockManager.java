@@ -21,6 +21,7 @@ import android.content.pm.PackageManager;
 import android.net.wifi.WifiManager;
 import android.net.wifi.WifiManager.WifiLock;
 import android.os.Looper;
+import android.os.Process;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
 
@@ -133,7 +134,7 @@ public final class WifiLockManager {
 
     public void updateWifiLock(boolean enabled, boolean stayAwake) {
       if (enabled && wifiLock == null) {
-        if (applicationContext.checkSelfPermission(Manifest.permission.WAKE_LOCK)
+        if (applicationContext.checkPermission(Manifest.permission.WAKE_LOCK, Process.myPid(), Process.myUid())
             != PackageManager.PERMISSION_GRANTED) {
           Log.w(TAG, "WAKE_LOCK permission not granted, can't acquire wake lock for playback");
           return;
