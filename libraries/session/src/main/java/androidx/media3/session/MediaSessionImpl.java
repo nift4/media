@@ -350,6 +350,9 @@ import org.checkerframework.checker.initialization.qual.Initialized;
     }
     sessionLegacyStub.release();
     sessionStub.release();
+    synchronized (lock) {
+      browserServiceLegacyStub = null;
+    }
     backgroundThread.quitSafely();
   }
 
