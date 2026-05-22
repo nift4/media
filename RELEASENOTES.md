@@ -60,6 +60,7 @@
         new API `MediaSession.Builder#setPackageNameOverride`. The caller must
         have `android.permission.OVERRIDE_MEDIA_SESSION_OWNER` permission to
         override the package name of the session.
+<<<<<<< HEAD
     *   Fix issue where `MediaController` can't set media items on platform
         media sessions that don't allow `PREPARE_FROM` actions.
     *   Fix bug where own process wasn't marked with `Controller.isTrusted()` on
@@ -70,6 +71,16 @@
         particular size can crash SysUI and force the device to reboot
         ([#3118](https://github.com/androidx/media/issues/3118)).
 >>>>>>> 2d454f57a4 (Fix SysUI crash/device reboot issue on API 29 for specific bitmap size)
+=======
+    *   Add `MediaSession.Callback.onConnectAsync()`. The new method allows to
+        asynchronously process the connection attempt of a controller. Apps can
+        return an immediate `Future` with
+        `Futures.immediateFuture(ConnectionResult)` to achieve the previous
+        behaviour. It's recommended to migrate to the new method because
+        `Callback.onConnect` is a candidate to be deprecated.
+    *   Fix issue where Bluetooth AVRCP browsing didn't recognise
+        `MediaLibraryService` on API 36 and 37.
+>>>>>>> d5c7a55462 (Add BluetoothValidationActivity to satisfy Bluetooth probe on API 36/37)
 *   UI:
     *   Hide playback position from the accessibility service to prevent
         continuous announcement update when `PlayerControlView` is visible.
