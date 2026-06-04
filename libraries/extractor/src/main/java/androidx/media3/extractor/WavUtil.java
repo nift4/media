@@ -51,6 +51,9 @@ public final class WavUtil {
   /** Four character code for "ID3 ". */
   public static final int ID3_FOURCC = 0x49443320;
 
+  /** Four character code for "ID3 ". */
+  public static final int ID3_FOURCC_2 = 0x69643320;
+
   /** Four character code for "rgad". */
   public static final int RGAD_FOURCC = 0x72676164;
 

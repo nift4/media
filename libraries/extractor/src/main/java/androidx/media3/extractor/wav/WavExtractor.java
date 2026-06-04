@@ -242,6 +242,7 @@ public final class WavExtractor implements Extractor {
           }
           return Extractor.RESULT_SEEK;
         case WavUtil.ID3_FOURCC:
+        case WavUtil.ID3_FOURCC_2:
           if (canParseMetadata) {
             boolean canParseArtwork = (flags & FLAG_DISABLE_ARTWORK_METADATA) == 0;
             id3Metadata = WavHeaderReader.parseId3(input, chunkHeader, canParseArtwork);
