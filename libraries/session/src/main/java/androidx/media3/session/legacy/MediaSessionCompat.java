@@ -72,6 +72,7 @@ import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
 
 /**
@@ -563,7 +564,9 @@ public class MediaSessionCompat {
               set.add(item.getQueueId());
             }
           }
-          impl.setQueue(queue);
+          if (!Objects.equals(getController().getQueue(), queue)) {
+            impl.setQueue(queue);
+          }
         });
   }
 
