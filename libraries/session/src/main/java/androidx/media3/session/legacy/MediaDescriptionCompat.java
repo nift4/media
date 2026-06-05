@@ -31,6 +31,8 @@ import androidx.annotation.RestrictTo;
 import androidx.media3.common.util.Log;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.util.Arrays;
+import java.util.Objects;
 
 /**
  * A simple set of metadata for a media item suitable for display. This can be created using the
@@ -431,7 +433,27 @@ public final class MediaDescriptionCompat implements Parcelable {
         }
       };
 
-  /** Builder for {@link MediaDescriptionCompat} objects. */
+    @Override
+    public boolean equals(@Nullable Object o) {
+        if (o == null || getClass() != o.getClass()) return false;
+        MediaDescriptionCompat that = (MediaDescriptionCompat) o;
+        return Objects.equals(mediaId, that.mediaId)
+                && Objects.equals(title, that.title)
+                && Objects.equals(subtitle, that.subtitle)
+                && Objects.equals(description, that.description)
+                && Objects.equals(icon, that.icon)
+                && Objects.deepEquals(compressedIcon, that.compressedIcon)
+                && Objects.equals(iconUri, that.iconUri)
+                && Objects.equals(mediaUri, that.mediaUri);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(mediaId, title, subtitle, description, icon,
+                Arrays.hashCode(compressedIcon), iconUri, mediaUri);
+    }
+
+    /** Builder for {@link MediaDescriptionCompat} objects. */
   public static final class Builder {
     @Nullable private String mediaId;
     @Nullable private CharSequence title;
