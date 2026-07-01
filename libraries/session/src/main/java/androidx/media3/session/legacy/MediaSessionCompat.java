@@ -72,6 +72,7 @@ import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
 
 /**
@@ -535,6 +536,8 @@ public class MediaSessionCompat {
     return postOrRunOnPlatformSessionThreadWithCompletion(() -> impl.setMetadata(metadata));
   }
 
+  private long lastUpdateTime = 0;
+
   /**
    * Updates the list of items in the play queue. It is an ordered list and should contain the
    * current item, and previous or upcoming items if they exist. The id of each item should be
@@ -563,7 +566,11 @@ public class MediaSessionCompat {
               set.add(item.getQueueId());
             }
           }
-          impl.setQueue(queue);
+          if (System.currentTimeMillis() - lastUpdateTime >= 2000L ||
+                  !Objects.equals(getController().getQueue(), queue)) {
+            impl.setQueue(queue);
+          }
+          lastUpdateTime = System.currentTimeMillis();
         });
   }
 
@@ -1715,6 +1722,18 @@ public class MediaSessionCompat {
     QueueItem(Parcel in) {
       description = MediaDescriptionCompat.CREATOR.createFromParcel(in);
       id = in.readLong();
+    }
+
+    @Override
+    public boolean equals(@Nullable Object o) {
+      if (o == null || getClass() != o.getClass()) return false;
+      QueueItem queueItem = (QueueItem) o;
+      return id == queueItem.id && Objects.equals(description, queueItem.description);
+    }
+
+    @Override
+    public int hashCode() {
+      return Objects.hash(description, id);
     }
 
     /** Gets the description for this item. */

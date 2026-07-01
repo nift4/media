@@ -74,4 +74,16 @@ public final class WavExtractorTest {
     ExtractorAsserts.assertBehavior(
         WavExtractor::new, "media/wav/sample_wav_format_extensible.wav", simulationConfig);
   }
+
+  @Test
+  public void sample_riff_and_rgad() throws Exception {
+    ExtractorAsserts.assertBehavior(
+        WavExtractor::new, "media/wav/sample_riff_and_rgad.wav", simulationConfig);
+  }
+
+  @Test
+  public void sample_id3() throws Exception {
+    ExtractorAsserts.assertBehavior(
+        WavExtractor::new, "media/wav/sample_id3.wav", simulationConfig);
+  }
 }

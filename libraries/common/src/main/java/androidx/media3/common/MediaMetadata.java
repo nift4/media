@@ -1266,7 +1266,8 @@ public final class MediaMetadata {
         && Objects.equals(station, that.station)
         && Objects.equals(mediaType, that.mediaType)
         && Objects.equals(supportedCommands, that.supportedCommands)
-        && ((extras == null) == (that.extras == null));
+        && ((extras == null) == (that.extras == null))
+        && (extras == null || Objects.equals(extras.getString("lyricInfo"), that.extras.getString("lyricInfo")));
   }
 
   @SuppressWarnings("deprecation") // Hashing deprecated fields.
