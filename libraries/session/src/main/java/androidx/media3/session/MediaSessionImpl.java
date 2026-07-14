@@ -1233,6 +1233,10 @@ import org.checkerframework.checker.initialization.qual.Initialized;
                               + " button receiver to your manifest or if you implement the recent"
                               + " media item contract with your MediaLibraryService.",
                           t);
+                    } else if (t instanceof MediaSession.ManuallyHandlePlaybackResumption) {
+                        // See ManuallyHandlePlaybackResumption javadoc for details.
+                        sessionFuture.set(new SessionResult(SessionResult.RESULT_SUCCESS));
+                        return;
                     } else {
                       Log.e(
                           TAG,
