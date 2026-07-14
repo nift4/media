@@ -2264,6 +2264,25 @@ public class MediaSession {
     }
   }
 
+    /**
+     * Exception that may be set to the future in {@link
+     * MediaSession.Callback#onPlaybackResumption(MediaSession, ControllerInfo, boolean)} if the
+     * parameter {@code isForPlayback} is true, in order to signal that the app wishes to handle this
+     * resumption itself. This means the app is responsible for restoring a playlist, setting it to
+     * the player, and starting playback.
+     *
+     * <p>Do note this has various pitfalls and needs to be used carefully:<br>
+     * - {@link MediaSession.Callback#onPlayerInteractionFinished(MediaSession, ControllerInfo,
+     * Player.Commands)} will NOT be called for the resumption command.<br>
+     * - If playback is not actually resumed in this method, the resumption notification will end up
+     * non-functional, but will keep being displayed. This is not a suitable way to disable playback
+     * resumption, do not attempt to disable it this way.<br>
+     * - If the app takes too long to go into foreground, the grant to go into foreground may have
+     * expired.
+     */
+    @UnstableApi
+    public static class ManuallyHandlePlaybackResumption extends Exception {}
+
   /**
    * A result for {@link Callback#onConnectAsync(MediaSession, ControllerInfo)} to denote the set of
    * available commands and the media button preferences for a {@link ControllerInfo controller}.
