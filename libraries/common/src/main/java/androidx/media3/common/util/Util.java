@@ -2565,6 +2565,8 @@ public final class Util {
         return "dts";
       case C.ENCODING_DTS_HD:
         return "dts-hd";
+      case C.ENCODING_DTS_HD_MA:
+        return "dts-hd-ma";
       case C.ENCODING_DTS_UHD_P2:
         return "dts-uhd-p2";
       case C.ENCODING_DSD:
@@ -2849,6 +2851,7 @@ public final class Util {
       case C.ENCODING_PCM_32BIT:
         return 31;
       case C.ENCODING_DTS_UHD_P2:
+      case C.ENCODING_DTS_HD_MA:
       case C.ENCODING_DSD:
         return 34;
       default:
