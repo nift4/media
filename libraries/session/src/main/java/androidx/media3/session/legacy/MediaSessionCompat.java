@@ -332,7 +332,6 @@ public class MediaSessionCompat {
   public MediaSessionCompat(
       Context context,
       String tag,
-      @Nullable ComponentName mbrComponent,
       @Nullable PendingIntent mbrIntent,
       @Nullable PendingIntent sessionActivity,
       @Nullable Bundle sessionInfo,
@@ -348,25 +347,6 @@ public class MediaSessionCompat {
           "must have OVERRIDE_MEDIA_SESSION_OWNER permission to override package name");
     }
 
-    if (mbrComponent == null) {
-      mbrComponent = MediaButtonReceiver.getMediaButtonReceiverComponent(context);
-      if (mbrComponent == null) {
-        Log.i(TAG, "Couldn't find a unique registered media button receiver in the given context.");
-      }
-    }
-    if (mbrComponent != null && mbrIntent == null) {
-      // construct a PendingIntent for the media button
-      Intent mediaButtonIntent = new Intent(Intent.ACTION_MEDIA_BUTTON);
-      // the associated intent will be handled by the component being registered
-      mediaButtonIntent.setComponent(mbrComponent);
-      mbrIntent =
-          PendingIntent.getBroadcast(
-              context,
-              0 /* requestCode, ignored */,
-              mediaButtonIntent,
-              Build.VERSION.SDK_INT >= 31 ? PendingIntent.FLAG_MUTABLE : 0);
-    }
-
     if (VERSION.SDK_INT >= 37) {
       impl = new MediaSessionImplApi37(context, tag, sessionInfo, packageNameOverride);
     } else if (Build.VERSION.SDK_INT >= 29) {
@@ -379,7 +359,9 @@ public class MediaSessionCompat {
     // Set default callback to respond to controllers' extra binder requests.
     internalHandler = new Handler(internalLooper);
     setCallback(new Callback() {}, internalHandler);
-    impl.setMediaButtonReceiver(mbrIntent);
+    if (mbrIntent != null) {
+      impl.setMediaButtonReceiver(mbrIntent);
+    }
     if (sessionActivity != null) {
       impl.setSessionActivity(sessionActivity);
     }
