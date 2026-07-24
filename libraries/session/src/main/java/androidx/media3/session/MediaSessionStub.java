@@ -1296,15 +1296,19 @@ import java.util.concurrent.ExecutionException;
             handleMediaItemsWithStartPositionWhenReady(
                 (sessionImpl, controller, sequenceNum) -> {
                   ImmutableList<MediaItem> mediaItemList;
-                  try {
-                    mediaItemList =
-                        BundleCollectionUtil.fromBundleList(
-                            bundle ->
-                                MediaItem.fromBundle(bundle, controller.getInterfaceVersion()),
-                            BundleListRetriever.getList(mediaItemsRetriever));
-                  } catch (RuntimeException e) {
-                    Log.w(TAG, "Ignoring malformed Bundle for MediaItem", e);
-                    return Futures.immediateFailedFuture(e);
+                  if (mediaItemsRetriever instanceof MediaItem.ListInProcessBinder) {
+                    mediaItemList = ((MediaItem.ListInProcessBinder) mediaItemsRetriever).getMediaItemList();
+                  } else {
+                    try {
+                      mediaItemList =
+                          BundleCollectionUtil.fromBundleList(
+                              bundle ->
+                                  MediaItem.fromBundle(bundle, controller.getInterfaceVersion()),
+                              BundleListRetriever.getList(mediaItemsRetriever));
+                    } catch (RuntimeException e) {
+                      Log.w(TAG, "Ignoring malformed Bundle for MediaItem", e);
+                      return Futures.immediateFailedFuture(e);
+                    }
                   }
                   return sessionImpl.onSetMediaItemsOnHandler(
                       controller,
@@ -1339,15 +1343,19 @@ import java.util.concurrent.ExecutionException;
             handleMediaItemsWithStartPositionWhenReady(
                 (sessionImpl, controller, sequenceNum) -> {
                   ImmutableList<MediaItem> mediaItemList;
-                  try {
-                    mediaItemList =
-                        BundleCollectionUtil.fromBundleList(
-                            bundle ->
-                                MediaItem.fromBundle(bundle, controller.getInterfaceVersion()),
-                            BundleListRetriever.getList(mediaItemsRetriever));
-                  } catch (RuntimeException e) {
-                    Log.w(TAG, "Ignoring malformed Bundle for MediaItem", e);
-                    return Futures.immediateFailedFuture(e);
+                  if (mediaItemsRetriever instanceof MediaItem.ListInProcessBinder) {
+                    mediaItemList = ((MediaItem.ListInProcessBinder) mediaItemsRetriever).getMediaItemList();
+                  } else {
+                    try {
+                      mediaItemList =
+                          BundleCollectionUtil.fromBundleList(
+                              bundle ->
+                                  MediaItem.fromBundle(bundle, controller.getInterfaceVersion()),
+                              BundleListRetriever.getList(mediaItemsRetriever));
+                    } catch (RuntimeException e) {
+                      Log.w(TAG, "Ignoring malformed Bundle for MediaItem", e);
+                      return Futures.immediateFailedFuture(e);
+                    }
                   }
                   return sessionImpl.onSetMediaItemsOnHandler(
                       controller,
@@ -1466,15 +1474,19 @@ import java.util.concurrent.ExecutionException;
             handleMediaItemsWhenReady(
                 (sessionImpl, controller, sequenceNum) -> {
                   ImmutableList<MediaItem> mediaItems;
-                  try {
-                    mediaItems =
-                        BundleCollectionUtil.fromBundleList(
-                            bundle ->
-                                MediaItem.fromBundle(bundle, controller.getInterfaceVersion()),
-                            BundleListRetriever.getList(mediaItemsRetriever));
-                  } catch (RuntimeException e) {
-                    Log.w(TAG, "Ignoring malformed Bundle for MediaItem", e);
-                    return Futures.immediateFailedFuture(e);
+                  if (mediaItemsRetriever instanceof MediaItem.ListInProcessBinder) {
+                    mediaItems = ((MediaItem.ListInProcessBinder) mediaItemsRetriever).getMediaItemList();
+                  } else {
+                    try {
+                      mediaItems =
+                          BundleCollectionUtil.fromBundleList(
+                              bundle ->
+                                  MediaItem.fromBundle(bundle, controller.getInterfaceVersion()),
+                              BundleListRetriever.getList(mediaItemsRetriever));
+                    } catch (RuntimeException e) {
+                      Log.w(TAG, "Ignoring malformed Bundle for MediaItem", e);
+                      return Futures.immediateFailedFuture(e);
+                    }
                   }
                   return sessionImpl.onAddMediaItemsOnHandler(controller, mediaItems);
                 },
@@ -1498,15 +1510,19 @@ import java.util.concurrent.ExecutionException;
             handleMediaItemsWhenReady(
                 (sessionImpl, controller, sequenceNum) -> {
                   ImmutableList<MediaItem> mediaItems;
-                  try {
-                    mediaItems =
-                        BundleCollectionUtil.fromBundleList(
-                            bundle ->
-                                MediaItem.fromBundle(bundle, controller.getInterfaceVersion()),
-                            BundleListRetriever.getList(mediaItemsRetriever));
-                  } catch (RuntimeException e) {
-                    Log.w(TAG, "Ignoring malformed Bundle for MediaItem", e);
-                    return Futures.immediateFailedFuture(e);
+                  if (mediaItemsRetriever instanceof MediaItem.ListInProcessBinder) {
+                    mediaItems = ((MediaItem.ListInProcessBinder) mediaItemsRetriever).getMediaItemList();
+                  } else {
+                    try {
+                      mediaItems =
+                          BundleCollectionUtil.fromBundleList(
+                              bundle ->
+                                  MediaItem.fromBundle(bundle, controller.getInterfaceVersion()),
+                              BundleListRetriever.getList(mediaItemsRetriever));
+                    } catch (RuntimeException e) {
+                      Log.w(TAG, "Ignoring malformed Bundle for MediaItem", e);
+                      return Futures.immediateFailedFuture(e);
+                    }
                   }
                   return sessionImpl.onAddMediaItemsOnHandler(controller, mediaItems);
                 },
@@ -1646,15 +1662,19 @@ import java.util.concurrent.ExecutionException;
             handleMediaItemsWhenReady(
                 (sessionImpl, controller, sequenceNum) -> {
                   ImmutableList<MediaItem> mediaItems;
-                  try {
-                    mediaItems =
-                        BundleCollectionUtil.fromBundleList(
-                            bundle ->
-                                MediaItem.fromBundle(bundle, controller.getInterfaceVersion()),
-                            BundleListRetriever.getList(mediaItemsRetriever));
-                  } catch (RuntimeException e) {
-                    Log.w(TAG, "Ignoring malformed Bundle for MediaItem", e);
-                    return Futures.immediateFailedFuture(e);
+                  if (mediaItemsRetriever instanceof MediaItem.ListInProcessBinder) {
+                    mediaItems = ((MediaItem.ListInProcessBinder) mediaItemsRetriever).getMediaItemList();
+                  } else {
+                    try {
+                      mediaItems =
+                          BundleCollectionUtil.fromBundleList(
+                              bundle ->
+                                  MediaItem.fromBundle(bundle, controller.getInterfaceVersion()),
+                              BundleListRetriever.getList(mediaItemsRetriever));
+                    } catch (RuntimeException e) {
+                      Log.w(TAG, "Ignoring malformed Bundle for MediaItem", e);
+                      return Futures.immediateFailedFuture(e);
+                    }
                   }
                   return sessionImpl.onAddMediaItemsOnHandler(controller, mediaItems);
                 },
