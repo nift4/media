@@ -1459,10 +1459,7 @@ public final class DefaultAudioSink implements AudioSink {
   @Nullable
   @Override
   public AudioCapabilities getAudioCapabilities() {
-    if (audioOutputProvider instanceof AudioTrackAudioOutputProvider) {
-      return ((AudioTrackAudioOutputProvider) audioOutputProvider).getAudioCapabilities();
-    }
-    return null;
+    return audioOutputProvider.getAudioCapabilities();
   }
 
   @Override
