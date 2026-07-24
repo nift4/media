@@ -94,7 +94,6 @@ object Media3Modules {
           "libraries/decoder_midi",
           "media3-exoplayer-midi",
           "Media3 MIDI decoder module",
-          includeInCompositeBuild = false,
         ),
       "lib-decoder-mpegh" to
         Media3Module(
