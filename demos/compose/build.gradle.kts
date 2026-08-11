@@ -38,12 +38,16 @@ dependencies {
   implementation(libs.androidx.activity.compose)
   implementation(libs.androidx.appcompat)
   implementation(libs.androidx.lifecycle.runtime.compose)
+  implementation(libs.androidx.lifecycle.viewmodel)
   implementation(libs.androidx.navigation.compose)
   implementation(libs.material)
   implementation(libs.kotlinx.coroutines.guava)
 
+  implementation(project(":lib-cast"))
   implementation(project(":lib-exoplayer"))
+  implementation(project(":lib-effect"))
   implementation(project(":lib-inspector"))
+  implementation(project(":lib-inspector-frame"))
   implementation(project(":lib-ui-compose-material3"))
 
   // For detecting and debugging leaks only. LeakCanary is not needed for demo app to work.

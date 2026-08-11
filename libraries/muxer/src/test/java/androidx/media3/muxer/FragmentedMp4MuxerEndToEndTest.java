@@ -17,8 +17,10 @@ package androidx.media3.muxer;
 
 import static androidx.media3.muxer.MuxerTestUtil.feedInputDataToMuxer;
 import static com.google.common.base.Preconditions.checkNotNull;
+import static com.google.common.truth.Truth.assertThat;
 
 import android.content.Context;
+import androidx.media3.common.C;
 import androidx.media3.common.Format;
 import androidx.media3.common.MimeTypes;
 import androidx.media3.container.Mp4TimestampData;
@@ -27,9 +29,11 @@ import androidx.media3.extractor.text.DefaultSubtitleParserFactory;
 import androidx.media3.test.utils.DumpFileAsserts;
 import androidx.media3.test.utils.DumpableMp4Box;
 import androidx.media3.test.utils.FakeExtractorOutput;
+import androidx.media3.test.utils.FakeTrackOutput;
 import androidx.media3.test.utils.TestUtil;
 import androidx.test.core.app.ApplicationProvider;
 import androidx.test.ext.junit.runners.AndroidJUnit4;
+import com.google.common.collect.ImmutableList;
 import java.io.FileOutputStream;
 import java.nio.ByteBuffer;
 import org.junit.Rule;
@@ -242,5 +246,180 @@ public class FragmentedMp4MuxerEndToEndTest {
         context,
         dumpableMp4Box,
         MuxerTestUtil.getExpectedMp4DumpFilePath("fragmented_mp4_with_unknown_track.mp4"));
+  }
+
+  @Test
+  public void write_singleTrack_extractorSeekMapIsSeekable() throws Exception {
+    String outputFilePath = temporaryFolder.newFile().getPath();
+
+    try (FragmentedMp4Muxer fragmentedMp4Muxer =
+        new FragmentedMp4Muxer.Builder(new FileOutputStream(outputFilePath).getChannel()).build()) {
+      feedInputDataToMuxer(context, fragmentedMp4Muxer, MEDIA_ASSET_DIRECTORY + H264_MP4);
+    }
+
+    FragmentedMp4Extractor extractor =
+        new FragmentedMp4Extractor(
+            new DefaultSubtitleParserFactory(), FragmentedMp4Extractor.FLAG_READ_MFRA_FOR_SEEK_MAP);
+
+    FakeExtractorOutput fakeExtractorOutput =
+        TestUtil.extractAllSamplesFromFilePath(extractor, outputFilePath);
+
+    assertThat(fakeExtractorOutput.seekMap.isSeekable()).isTrue();
+    assertThat(fakeExtractorOutput.seekMap.getSeekPoints(/* timeUs= */ 0).first.position)
+        .isGreaterThan(0);
+    assertThat(fakeExtractorOutput.seekMap.getSeekPoints(/* timeUs= */ 500_000L).first.position)
+        .isGreaterThan(0);
+  }
+
+  @Test
+  public void write_fragmentedMp4_extractorParsesSampleTimestampsCorrectly() throws Exception {
+    String outputFilePath = temporaryFolder.newFile().getPath();
+
+    try (FragmentedMp4Muxer fragmentedMp4Muxer =
+        new FragmentedMp4Muxer.Builder(new FileOutputStream(outputFilePath).getChannel()).build()) {
+      feedInputDataToMuxer(context, fragmentedMp4Muxer, MEDIA_ASSET_DIRECTORY + H264_MP4);
+    }
+
+    FragmentedMp4Extractor extractor =
+        new FragmentedMp4Extractor(new DefaultSubtitleParserFactory());
+    FakeExtractorOutput fakeExtractorOutput =
+        TestUtil.extractAllSamplesFromFilePath(extractor, outputFilePath);
+
+    // 43990L is the initial sample presentation timestamp (in microseconds) extracted from
+    // sample_no_bframes.mp4 after FragmentedMp4Extractor parses the written tfdt box.
+    FakeTrackOutput trackOutput = fakeExtractorOutput.trackOutputs.get(0);
+    assertThat(trackOutput.getSampleTimeUs(0)).isEqualTo(43990L);
+  }
+
+  @Test
+  public void write_negativeInitialSampleTimestamp_clampsBaseMediaDecodeTimeToZero()
+      throws Exception {
+    String outputFilePath = temporaryFolder.newFile().getPath();
+
+    try (FragmentedMp4Muxer fragmentedMp4Muxer =
+        new FragmentedMp4Muxer.Builder(new FileOutputStream(outputFilePath).getChannel()).build()) {
+      int trackId = fragmentedMp4Muxer.addTrack(MuxerTestUtil.FAKE_AUDIO_FORMAT);
+      ByteBuffer sampleData = ByteBuffer.allocate(10);
+      fragmentedMp4Muxer.writeSampleData(
+          trackId,
+          sampleData,
+          new BufferInfo(
+              /* presentationTimeUs= */ -1000L,
+              /* size= */ sampleData.remaining(),
+              /* flags= */ C.BUFFER_FLAG_KEY_FRAME));
+    }
+
+    FragmentedMp4Extractor extractor =
+        new FragmentedMp4Extractor(new DefaultSubtitleParserFactory());
+    FakeExtractorOutput fakeExtractorOutput =
+        TestUtil.extractAllSamplesFromFilePath(extractor, outputFilePath);
+
+    FakeTrackOutput trackOutput = fakeExtractorOutput.trackOutputs.get(0);
+    assertThat(trackOutput.getSampleTimeUs(0)).isEqualTo(0L);
+  }
+
+  @Test
+  public void write_multiTrack_extractorSeekMapIsSeekable() throws Exception {
+    String outputFilePath = temporaryFolder.newFile().getPath();
+
+    try (FragmentedMp4Muxer fragmentedMp4Muxer =
+        new FragmentedMp4Muxer.Builder(new FileOutputStream(outputFilePath).getChannel()).build()) {
+      feedInputDataToMuxer(context, fragmentedMp4Muxer, MEDIA_ASSET_DIRECTORY + H264_MP4);
+      feedInputDataToMuxer(context, fragmentedMp4Muxer, MEDIA_ASSET_DIRECTORY + AUDIO_ONLY_MP4);
+    }
+
+    FragmentedMp4Extractor extractor =
+        new FragmentedMp4Extractor(
+            new DefaultSubtitleParserFactory(), FragmentedMp4Extractor.FLAG_READ_MFRA_FOR_SEEK_MAP);
+
+    FakeExtractorOutput fakeExtractorOutput =
+        TestUtil.extractAllSamplesFromFilePath(extractor, outputFilePath);
+
+    assertThat(fakeExtractorOutput.numberOfTracks).isEqualTo(2);
+    assertThat(fakeExtractorOutput.seekMap.isSeekable()).isTrue();
+    assertThat(fakeExtractorOutput.seekMap.getSeekPoints(/* timeUs= */ 0).first.position)
+        .isGreaterThan(0);
+    assertThat(fakeExtractorOutput.seekMap.getSeekPoints(/* timeUs= */ 500_000L).first.position)
+        .isGreaterThan(0);
+  }
+
+  // Non-video/metadata tracks treat all samples as random access points (!MimeTypes.isVideo(...) ==
+  // true),
+  // which records tfra entries into the mfra box and allows the extractor to build a seekable
+  // SeekMap.
+  @Test
+  public void write_withEmptyTrackInFragment_correctlySetsActiveTrafIndex() throws Exception {
+    String outputFilePath = temporaryFolder.newFile().getPath();
+    byte[] sampleData = new byte[] {0x00, 0x00, 0x00, 0x01, 0x65, 0x01};
+    Format track1Format = new Format.Builder().setSampleMimeType("meta1").build();
+    Format track2Format = new Format.Builder().setSampleMimeType("meta2").build();
+    Format track3Format = new Format.Builder().setSampleMimeType("meta3").build();
+
+    try (FragmentedMp4Muxer muxer =
+        new FragmentedMp4Muxer.Builder(new FileOutputStream(outputFilePath).getChannel()).build()) {
+      int track1Id = muxer.addTrack(track1Format);
+      int unusedTrack2Id = muxer.addTrack(track2Format);
+      int track3Id = muxer.addTrack(track3Format);
+
+      // Track 1 gets a sample.
+      muxer.writeSampleData(
+          track1Id,
+          ByteBuffer.wrap(sampleData),
+          new BufferInfo(
+              /* presentationTimeUs= */ 0L, /* size= */ sampleData.length, /* flags= */ 0));
+
+      // Track 2 receives NO samples in this fragment.
+
+      // Track 3 gets a sample.
+      muxer.writeSampleData(
+          track3Id,
+          ByteBuffer.wrap(sampleData),
+          new BufferInfo(
+              /* presentationTimeUs= */ 0L, /* size= */ sampleData.length, /* flags= */ 0));
+    }
+
+    FragmentedMp4Extractor extractor =
+        new FragmentedMp4Extractor(
+            new DefaultSubtitleParserFactory(), FragmentedMp4Extractor.FLAG_READ_MFRA_FOR_SEEK_MAP);
+
+    FakeExtractorOutput fakeExtractorOutput =
+        TestUtil.extractAllSamplesFromFilePath(extractor, outputFilePath);
+
+    assertThat(fakeExtractorOutput.seekMap.isSeekable()).isTrue();
+    assertThat(fakeExtractorOutput.seekMap.getSeekPoints(/* timeUs= */ 0).first.position)
+        .isGreaterThan(0);
+  }
+
+  @Test
+  public void createMp4File_withAudioEAc3Joc_createsDec3Box() throws Exception {
+    String outputFilePath = temporaryFolder.newFile().getPath();
+    byte[] expectedDec3Payload = new byte[] {0x00, 0x00, 0x00, 0x03, 0x00};
+    Format eac3JocFormat =
+        new Format.Builder()
+            .setSampleMimeType(MimeTypes.AUDIO_E_AC3_JOC)
+            .setInitializationData(ImmutableList.of(expectedDec3Payload))
+            .build();
+    byte[] sampleData = new byte[] {0x00, 0x01, 0x02, 0x03};
+
+    try (FragmentedMp4Muxer fragmentedMp4Muxer =
+        new FragmentedMp4Muxer.Builder(new FileOutputStream(outputFilePath).getChannel()).build()) {
+      int audioTrack = fragmentedMp4Muxer.addTrack(eac3JocFormat);
+      fragmentedMp4Muxer.writeSampleData(
+          audioTrack,
+          ByteBuffer.wrap(sampleData),
+          new BufferInfo(
+              /* presentationTimeUs= */ 0L,
+              /* size= */ sampleData.length,
+              /* flags= */ C.BUFFER_FLAG_KEY_FRAME));
+    }
+
+    FragmentedMp4Extractor extractor =
+        new FragmentedMp4Extractor(new DefaultSubtitleParserFactory());
+    FakeExtractorOutput extractorOutput =
+        TestUtil.extractAllSamplesFromFilePath(extractor, outputFilePath);
+    Format extractedFormat = checkNotNull(extractorOutput.trackOutputs.valueAt(0).lastFormat);
+    assertThat(extractedFormat.sampleMimeType).isEqualTo(MimeTypes.AUDIO_E_AC3);
+    assertThat(extractedFormat.initializationData).hasSize(1);
+    assertThat(extractedFormat.initializationData.get(0)).isEqualTo(expectedDec3Payload);
   }
 }

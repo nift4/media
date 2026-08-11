@@ -21,6 +21,7 @@ import static androidx.media3.muxer.MuxerTestUtil.FAKE_AUDIO_FORMAT;
 import static androidx.media3.muxer.MuxerTestUtil.FAKE_CSD_0;
 import static androidx.media3.muxer.MuxerTestUtil.FAKE_VIDEO_FORMAT;
 import static com.google.common.truth.Truth.assertThat;
+import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.util.Arrays.asList;
 import static org.junit.Assert.assertThrows;
 
@@ -858,6 +859,39 @@ public class BoxesTest {
   }
 
   @Test
+  public void stsz_withIdenticallySizedSamples_matchesExpected() throws IOException {
+    List<BufferInfo> sampleBufferInfos = createBufferInfoListWithSampleSizes(150, 150, 150, 150);
+
+    ByteBuffer stszBox = Boxes.stsz(sampleBufferInfos);
+
+    DumpableMp4Box dumpableBox = new DumpableMp4Box(stszBox);
+    DumpFileAsserts.assertOutput(
+        context,
+        dumpableBox,
+        MuxerTestUtil.getExpectedMp4DumpFilePath("stsz_box_with_identically_sized_samples"));
+  }
+
+  @Test
+  public void stsz_withIdenticallySizedSamples_omitsSampleTableAndSetsHeaderSampleSize()
+      throws Exception {
+    List<BufferInfo> sampleBufferInfos = createBufferInfoListWithSampleSizes(150, 150, 150, 150);
+
+    ByteBuffer stszBox = Boxes.stsz(sampleBufferInfos);
+
+    // Verify total box size is 20 bytes (8-byte header + 12-byte payload, omitting 4x4 entry array)
+    assertThat(stszBox.remaining()).isEqualTo(20);
+
+    // Parse ISO 14496-12 fields: version/flags (4 bytes), sample_size (4 bytes), sample_count (4
+    // bytes)
+    stszBox.position(12);
+    int sampleSize = stszBox.getInt();
+    int sampleCount = stszBox.getInt();
+
+    assertThat(sampleSize).isEqualTo(150);
+    assertThat(sampleCount).isEqualTo(4);
+  }
+
+  @Test
   public void createStscBox_withDifferentChunks_matchesExpected() throws IOException {
     ImmutableList<Integer> chunkSampleCounts = ImmutableList.of(100, 500, 200, 100);
 
@@ -1062,6 +1096,27 @@ public class BoxesTest {
   }
 
   @Test
+  public void createDec3Box_withAudioEAc3Joc_matchesExpectedDec3Box() {
+    Format format =
+        FAKE_AUDIO_FORMAT
+            .buildUpon()
+            .setSampleMimeType(MimeTypes.AUDIO_E_AC3_JOC)
+            .setInitializationData(ImmutableList.of(new byte[] {0x00, 0x00, 0x00, 0x03, 0x00}))
+            .build();
+
+    ByteBuffer dec3Box = Boxes.codecSpecificBox(format);
+
+    int expectedTotalSize = 4 + 4 + 5;
+    assertThat(dec3Box.getInt()).isEqualTo(expectedTotalSize);
+    byte[] type = new byte[4];
+    dec3Box.get(type);
+    assertThat(type).isEqualTo(Util.getUtf8Bytes("dec3"));
+    byte[] payload = new byte[5];
+    dec3Box.get(payload);
+    assertThat(payload).isEqualTo(new byte[] {0x00, 0x00, 0x00, 0x03, 0x00});
+  }
+
+  @Test
   public void createAudioSampleEntryBox_forIamf_matchesExpected() {
     Format format =
         FAKE_AUDIO_FORMAT
@@ -1133,6 +1188,25 @@ public class BoxesTest {
         context,
         dumpableBox,
         MuxerTestUtil.getExpectedMp4DumpFilePath("tref_box_with_multiple_track_reference"));
+  }
+
+  @Test
+  public void tfdt_withBaseMediaDecodeTime_matchesExpected() {
+    long baseMediaDecodeTime = 90_000L;
+
+    ByteBuffer tfdtBox = Boxes.tfdt(baseMediaDecodeTime);
+
+    // Box size (8-byte header + 12-byte payload = 20 bytes total).
+    assertThat(tfdtBox.remaining()).isEqualTo(20);
+    assertThat(tfdtBox.getInt()).isEqualTo(20);
+    // Box header type ("tfdt").
+    byte[] boxType = new byte[4];
+    tfdtBox.get(boxType);
+    assertThat(new String(boxType, UTF_8)).isEqualTo("tfdt");
+    // FullBox version 1 (64-bit decode time support) and flags (0).
+    assertThat(tfdtBox.getInt()).isEqualTo(0x01000000);
+    // 64-bit baseMediaDecodeTime payload.
+    assertThat(tfdtBox.getLong()).isEqualTo(baseMediaDecodeTime);
   }
 
   private static List<Long> durationsVuToPresentationTimestamps(

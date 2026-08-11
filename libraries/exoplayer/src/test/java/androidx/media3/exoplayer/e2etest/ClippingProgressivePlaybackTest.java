@@ -16,10 +16,12 @@
 package androidx.media3.exoplayer.e2etest;
 
 import static androidx.media3.test.utils.robolectric.TestPlayerRunHelper.advance;
+import static org.junit.Assume.assumeTrue;
 
 import android.content.Context;
 import android.graphics.SurfaceTexture;
 import android.net.Uri;
+import android.os.ConditionVariable;
 import android.util.Pair;
 import android.view.Surface;
 import androidx.annotation.Nullable;
@@ -47,6 +49,7 @@ import androidx.media3.test.utils.robolectric.CapturingRenderersFactory;
 import androidx.media3.test.utils.robolectric.PlaybackOutput;
 import androidx.media3.test.utils.robolectric.ShadowMediaCodecConfig;
 import androidx.test.core.app.ApplicationProvider;
+import com.google.common.base.Predicate;
 import com.google.common.collect.ImmutableList;
 import com.google.errorprone.annotations.CanIgnoreReturnValue;
 import com.google.testing.junit.testparameterinjector.TestParameter;
@@ -68,6 +71,7 @@ import org.robolectric.annotation.Config;
 public final class ClippingProgressivePlaybackTest {
 
   private static final String TEST_MP4_URI = "asset:///media/mp4/sample.mp4";
+  private static final String TEST_LONG_MP4_URI = "asset:///media/mp4/midroll-5s.mp4";
 
   @TestParameter private boolean enableMediaPeriodClipping;
 
@@ -133,12 +137,327 @@ public final class ClippingProgressivePlaybackTest {
         "playbackdumps/clipping/clipped_seek_period_clipping_" + dumpFileSuffix + ".dump");
   }
 
+  @Test
+  public void replaceMediaItem_reduceEndPositionAfterLoadingFinished_playsToNewEndPosition()
+      throws Exception {
+    assumeTrue(enableMediaPeriodClipping);
+    Pair<ExoPlayer, PlaybackOutput> setupData = setUpPlayerAndCapturingOutputForClippingTest();
+    ExoPlayer player = setupData.first;
+    PlaybackOutput playbackOutput = setupData.second;
+    MediaItem mediaItem =
+        new MediaItem.Builder()
+            .setUri(TEST_LONG_MP4_URI)
+            .setClippingConfiguration(
+                new MediaItem.ClippingConfiguration.Builder()
+                    .setStartPositionMs(100)
+                    .setEndPositionMs(3000)
+                    .build())
+            .build();
+    player.setMediaItem(mediaItem);
+    player.prepare();
+    advance(player).untilFullyBuffered();
+
+    player.replaceMediaItem(
+        /* index= */ 0,
+        mediaItem
+            .buildUpon()
+            .setClippingConfiguration(
+                mediaItem.clippingConfiguration.buildUpon().setEndPositionMs(2000).build())
+            .build());
+    advance(player).untilPendingCommandsAreFullyHandled();
+    player.play();
+    advance(player).untilState(Player.STATE_ENDED);
+    player.release();
+
+    DumpFileAsserts.assertOutput(
+        ApplicationProvider.getApplicationContext(),
+        playbackOutput,
+        "playbackdumps/clipping/replace_reduce_after_load_finished_enabled.dump");
+  }
+
+  @Test
+  public void
+      replaceMediaItem_reduceEndPositionBeforeLoadingFinishedToNotLoadedValue_playsToNewEndPosition()
+          throws Exception {
+    assumeTrue(enableMediaPeriodClipping);
+    ConditionVariable blockLoadingCondition = new ConditionVariable();
+    CapturingExtractorsFactory[] factoryHolder = new CapturingExtractorsFactory[1];
+    Pair<ExoPlayer, PlaybackOutput> setupData =
+        setUpPlayerAndCapturingOutputForClippingTest(
+            blockLoadingCondition,
+            /* blockLoadingFilter= */ sampleMetadata -> sampleMetadata.timeUs >= 1_000_000,
+            factoryHolder);
+    ExoPlayer player = setupData.first;
+    PlaybackOutput playbackOutput = setupData.second;
+    MediaItem mediaItem =
+        new MediaItem.Builder()
+            .setUri(TEST_LONG_MP4_URI)
+            .setClippingConfiguration(
+                new MediaItem.ClippingConfiguration.Builder()
+                    .setStartPositionMs(100)
+                    .setEndPositionMs(3000)
+                    .build())
+            .build();
+    player.setMediaItem(mediaItem);
+    player.prepare();
+    advance(player)
+        .untilBackgroundThreadCondition(
+            () -> factoryHolder[0] != null && factoryHolder[0].isBlocked());
+
+    player.replaceMediaItem(
+        /* index= */ 0,
+        mediaItem
+            .buildUpon()
+            .setClippingConfiguration(
+                mediaItem.clippingConfiguration.buildUpon().setEndPositionMs(2000).build())
+            .build());
+    advance(player).untilPendingCommandsAreFullyHandled();
+    blockLoadingCondition.open();
+    player.play();
+    advance(player).untilState(Player.STATE_ENDED);
+    player.release();
+
+    DumpFileAsserts.assertOutput(
+        ApplicationProvider.getApplicationContext(),
+        playbackOutput,
+        "playbackdumps/clipping/replace_reduce_before_load_finished_to_not_loaded_value_enabled.dump");
+  }
+
+  @Test
+  public void
+      replaceMediaItem_reduceEndPositionBeforeLoadingFinishedToAlreadyLoadedValue_playsToNewEndPosition()
+          throws Exception {
+    assumeTrue(enableMediaPeriodClipping);
+    ConditionVariable blockLoadingCondition = new ConditionVariable();
+    CapturingExtractorsFactory[] factoryHolder = new CapturingExtractorsFactory[1];
+    Pair<ExoPlayer, PlaybackOutput> setupData =
+        setUpPlayerAndCapturingOutputForClippingTest(
+            blockLoadingCondition,
+            /* blockLoadingFilter= */ sampleMetadata -> sampleMetadata.timeUs >= 2_500_000,
+            factoryHolder);
+    ExoPlayer player = setupData.first;
+    PlaybackOutput playbackOutput = setupData.second;
+    MediaItem mediaItem =
+        new MediaItem.Builder()
+            .setUri(TEST_LONG_MP4_URI)
+            .setClippingConfiguration(
+                new MediaItem.ClippingConfiguration.Builder()
+                    .setStartPositionMs(100)
+                    .setEndPositionMs(4000)
+                    .build())
+            .build();
+    player.setMediaItem(mediaItem);
+    player.prepare();
+    advance(player)
+        .untilBackgroundThreadCondition(
+            () -> factoryHolder[0] != null && factoryHolder[0].isBlocked());
+
+    player.replaceMediaItem(
+        /* index= */ 0,
+        mediaItem
+            .buildUpon()
+            .setClippingConfiguration(
+                mediaItem.clippingConfiguration.buildUpon().setEndPositionMs(2000).build())
+            .build());
+    advance(player).untilPendingCommandsAreFullyHandled();
+    blockLoadingCondition.open();
+    player.play();
+    advance(player).untilState(Player.STATE_ENDED);
+    player.release();
+
+    DumpFileAsserts.assertOutput(
+        ApplicationProvider.getApplicationContext(),
+        playbackOutput,
+        "playbackdumps/clipping/replace_reduce_before_load_finished_to_already_loaded_value_enabled.dump");
+  }
+
+  @Test
+  public void replaceMediaItem_extendEndPositionAfterLoadingFinished_playsToNewEndPosition()
+      throws Exception {
+    assumeTrue(enableMediaPeriodClipping);
+    Pair<ExoPlayer, PlaybackOutput> setupData = setUpPlayerAndCapturingOutputForClippingTest();
+    ExoPlayer player = setupData.first;
+    PlaybackOutput playbackOutput = setupData.second;
+    MediaItem mediaItem =
+        new MediaItem.Builder()
+            .setUri(TEST_LONG_MP4_URI)
+            .setClippingConfiguration(
+                new MediaItem.ClippingConfiguration.Builder()
+                    .setStartPositionMs(100)
+                    .setEndPositionMs(2000)
+                    .build())
+            .build();
+    player.setMediaItem(mediaItem);
+    player.prepare();
+    advance(player).untilFullyBuffered();
+
+    player.replaceMediaItem(
+        /* index= */ 0,
+        mediaItem
+            .buildUpon()
+            .setClippingConfiguration(
+                mediaItem.clippingConfiguration.buildUpon().setEndPositionMs(3000).build())
+            .build());
+    advance(player).untilPendingCommandsAreFullyHandled();
+    player.play();
+    advance(player).untilState(Player.STATE_ENDED);
+    player.release();
+
+    DumpFileAsserts.assertOutput(
+        ApplicationProvider.getApplicationContext(),
+        playbackOutput,
+        "playbackdumps/clipping/replace_extend_after_load_finished_enabled.dump");
+  }
+
+  @Test
+  public void replaceMediaItem_extendEndPositionBeforeLoadingFinished_playsToNewEndPosition()
+      throws Exception {
+    assumeTrue(enableMediaPeriodClipping);
+    ConditionVariable blockLoadingCondition = new ConditionVariable();
+    CapturingExtractorsFactory[] factoryHolder = new CapturingExtractorsFactory[1];
+    Pair<ExoPlayer, PlaybackOutput> setupData =
+        setUpPlayerAndCapturingOutputForClippingTest(
+            blockLoadingCondition,
+            /* blockLoadingFilter= */ sampleMetadata -> sampleMetadata.timeUs >= 1_500_000,
+            factoryHolder);
+    ExoPlayer player = setupData.first;
+    PlaybackOutput playbackOutput = setupData.second;
+    MediaItem mediaItem =
+        new MediaItem.Builder()
+            .setUri(TEST_LONG_MP4_URI)
+            .setClippingConfiguration(
+                new MediaItem.ClippingConfiguration.Builder()
+                    .setStartPositionMs(100)
+                    .setEndPositionMs(2000)
+                    .build())
+            .build();
+    player.setMediaItem(mediaItem);
+    player.prepare();
+    advance(player)
+        .untilBackgroundThreadCondition(
+            () -> factoryHolder[0] != null && factoryHolder[0].isBlocked());
+
+    player.replaceMediaItem(
+        /* index= */ 0,
+        mediaItem
+            .buildUpon()
+            .setClippingConfiguration(
+                mediaItem.clippingConfiguration.buildUpon().setEndPositionMs(3000).build())
+            .build());
+    advance(player).untilPendingCommandsAreFullyHandled();
+    blockLoadingCondition.open();
+    player.play();
+    advance(player).untilState(Player.STATE_ENDED);
+    player.release();
+
+    DumpFileAsserts.assertOutput(
+        ApplicationProvider.getApplicationContext(),
+        playbackOutput,
+        "playbackdumps/clipping/replace_extend_before_load_finished_enabled.dump");
+  }
+
+  @Test
+  public void
+      replaceMediaItem_extendEndPositionToEndOfSourceAfterLoadingFinished_playsToEndOfSource()
+          throws Exception {
+    assumeTrue(enableMediaPeriodClipping);
+    Pair<ExoPlayer, PlaybackOutput> setupData = setUpPlayerAndCapturingOutputForClippingTest();
+    ExoPlayer player = setupData.first;
+    PlaybackOutput playbackOutput = setupData.second;
+    MediaItem mediaItem =
+        new MediaItem.Builder()
+            .setUri(TEST_LONG_MP4_URI)
+            .setClippingConfiguration(
+                new MediaItem.ClippingConfiguration.Builder()
+                    .setStartPositionMs(100)
+                    .setEndPositionMs(2000)
+                    .build())
+            .build();
+    player.setMediaItem(mediaItem);
+    player.prepare();
+    advance(player).untilFullyBuffered();
+
+    player.replaceMediaItem(
+        /* index= */ 0,
+        mediaItem
+            .buildUpon()
+            .setClippingConfiguration(
+                mediaItem
+                    .clippingConfiguration
+                    .buildUpon()
+                    .setEndPositionMs(C.TIME_END_OF_SOURCE)
+                    .build())
+            .build());
+    advance(player).untilPendingCommandsAreFullyHandled();
+    player.play();
+    advance(player).untilState(Player.STATE_ENDED);
+    player.release();
+
+    DumpFileAsserts.assertOutput(
+        ApplicationProvider.getApplicationContext(),
+        playbackOutput,
+        "playbackdumps/clipping/replace_extend_to_end_of_source_after_load_finished_enabled.dump");
+  }
+
+  @Test
+  public void
+      replaceMediaItem_reduceEndPositionFromEndOfSourceAfterLoadingFinished_playsToNewEndPosition()
+          throws Exception {
+    assumeTrue(enableMediaPeriodClipping);
+    Pair<ExoPlayer, PlaybackOutput> setupData = setUpPlayerAndCapturingOutputForClippingTest();
+    ExoPlayer player = setupData.first;
+    PlaybackOutput playbackOutput = setupData.second;
+    MediaItem mediaItem =
+        new MediaItem.Builder()
+            .setUri(TEST_LONG_MP4_URI)
+            .setClippingConfiguration(
+                new MediaItem.ClippingConfiguration.Builder()
+                    .setStartPositionMs(100)
+                    .setEndPositionMs(C.TIME_END_OF_SOURCE)
+                    .build())
+            .build();
+    player.setMediaItem(mediaItem);
+    player.prepare();
+    advance(player).untilFullyBuffered();
+
+    player.replaceMediaItem(
+        /* index= */ 0,
+        mediaItem
+            .buildUpon()
+            .setClippingConfiguration(
+                mediaItem.clippingConfiguration.buildUpon().setEndPositionMs(2000).build())
+            .build());
+    advance(player).untilPendingCommandsAreFullyHandled();
+    player.play();
+    advance(player).untilState(Player.STATE_ENDED);
+    player.release();
+
+    DumpFileAsserts.assertOutput(
+        ApplicationProvider.getApplicationContext(),
+        playbackOutput,
+        "playbackdumps/clipping/replace_reduce_from_end_of_source_after_load_finished_enabled.dump");
+  }
+
   private Pair<ExoPlayer, PlaybackOutput> setUpPlayerAndCapturingOutputForClippingTest() {
+    return setUpPlayerAndCapturingOutputForClippingTest(
+        /* blockLoadingCondition= */ null,
+        /* blockLoadingFilter= */ null,
+        /* factoryHolder= */ null);
+  }
+
+  private Pair<ExoPlayer, PlaybackOutput> setUpPlayerAndCapturingOutputForClippingTest(
+      @Nullable ConditionVariable blockLoadingCondition,
+      @Nullable Predicate<DumpableSampleMetadata> blockLoadingFilter,
+      @Nullable CapturingExtractorsFactory[] factoryHolder) {
     Context context = ApplicationProvider.getApplicationContext();
     FakeClock clock = new FakeClock(/* isAutoAdvancing= */ true);
     // Capture the extracted samples in addition to the decoded samples to capture the loading
     // pattern and verify that loading stops once all required samples are available.
-    CapturingExtractorsFactory capturingExtractorsFactory = new CapturingExtractorsFactory();
+    CapturingExtractorsFactory capturingExtractorsFactory =
+        new CapturingExtractorsFactory(blockLoadingCondition, blockLoadingFilter);
+    if (factoryHolder != null && factoryHolder.length > 0) {
+      factoryHolder[0] = capturingExtractorsFactory;
+    }
     CapturingRenderersFactory capturingRenderersFactory =
         new CapturingRenderersFactory(context, clock) {
           @Override
@@ -169,6 +488,15 @@ public final class ClippingProgressivePlaybackTest {
                 })
             .setClock(clock)
             .build();
+    player.addListener(
+        new Player.Listener() {
+          @Override
+          public void onPlaybackStateChanged(@Player.State int playbackState) {
+            if (playbackState == Player.STATE_READY || playbackState == Player.STATE_ENDED) {
+              capturingExtractorsFactory.startedPlayback();
+            }
+          }
+        });
     Surface surface = new Surface(new SurfaceTexture(/* texName= */ 1));
     player.setVideoSurface(surface);
     PlaybackOutput playbackOutput = PlaybackOutput.register(player, capturingRenderersFactory);
@@ -178,13 +506,34 @@ public final class ClippingProgressivePlaybackTest {
   private static final class CapturingExtractorsFactory extends ForwardingExtractorsFactory
       implements Dumper.Dumpable {
 
-    private final ImmutableList.Builder<DumpableSampleMetadata> samples;
+    @Nullable private final ConditionVariable blockLoadingCondition;
+    @Nullable private final Predicate<DumpableSampleMetadata> blockLoadingFilter;
+
+    private ImmutableList.Builder<DumpableSampleMetadata> samples;
+    private volatile boolean isBlocked;
+    private boolean startedPlayback;
 
     private int nextSampleIndex;
 
     private CapturingExtractorsFactory() {
+      this(/* blockLoadingCondition= */ null, /* blockLoadingFilter= */ null);
+    }
+
+    private CapturingExtractorsFactory(
+        @Nullable ConditionVariable blockLoadingCondition,
+        @Nullable Predicate<DumpableSampleMetadata> blockLoadingFilter) {
       super(new DefaultExtractorsFactory());
+      this.blockLoadingCondition = blockLoadingCondition;
+      this.blockLoadingFilter = blockLoadingFilter;
       samples = ImmutableList.builder();
+    }
+
+    boolean isBlocked() {
+      return isBlocked;
+    }
+
+    synchronized void startedPlayback() {
+      startedPlayback = true;
     }
 
     @Override
@@ -198,7 +547,7 @@ public final class ClippingProgressivePlaybackTest {
     }
 
     @Override
-    public void dump(Dumper dumper) {
+    public synchronized void dump(Dumper dumper) {
       dumper.startBlock("extracted samples");
       for (DumpableSampleMetadata sampleMetadata : samples.build()) {
         sampleMetadata.dump(dumper);
@@ -211,11 +560,23 @@ public final class ClippingProgressivePlaybackTest {
       for (int i = 0; i < extractors.length; i++) {
         extractors[i] =
             new ForwardingExtractor(extractors[i]) {
-              boolean seenClippedSeek = false;
+              private boolean seenInitialPreparationSeek;
 
               @Override
               public void seek(long position, long timeUs) {
-                seenClippedSeek |= timeUs != 0;
+                if (!seenInitialPreparationSeek) {
+                  seenInitialPreparationSeek = true;
+                } else if (timeUs != 0) {
+                  // A seek with non-zero timeUs before playback starts indicates that the initial
+                  // preparation load was cancelled and restarted for the clipped start position.
+                  // Clear the discarded samples from the aborted initial load.
+                  synchronized (CapturingExtractorsFactory.this) {
+                    if (!startedPlayback) {
+                      samples = ImmutableList.builder();
+                      nextSampleIndex = 0;
+                    }
+                  }
+                }
                 super.seek(position, timeUs);
               }
 
@@ -233,12 +594,18 @@ public final class ClippingProgressivePlaybackTest {
                               int size,
                               int offset,
                               @Nullable CryptoData cryptoData) {
-                            if (seenClippedSeek) {
-                              // Ignore samples from initial preparation before applying the seek to
-                              // the clipped start position.
-                              samples.add(
+                            DumpableSampleMetadata metadata;
+                            synchronized (CapturingExtractorsFactory.this) {
+                              metadata =
                                   new DumpableSampleMetadata(
-                                      nextSampleIndex++, id, timeUs, flags, size));
+                                      nextSampleIndex++, id, timeUs, flags, size);
+                              samples.add(metadata);
+                            }
+                            if (blockLoadingCondition != null
+                                && blockLoadingFilter != null
+                                && blockLoadingFilter.apply(metadata)) {
+                              isBlocked = true;
+                              blockLoadingCondition.block();
                             }
                             super.sampleMetadata(timeUs, flags, size, offset, cryptoData);
                           }

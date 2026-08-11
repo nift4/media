@@ -20,14 +20,17 @@ import static androidx.media3.test.utils.robolectric.RobolectricUtil.runMainLoop
 import static com.google.common.truth.Truth.assertThat;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assume.assumeTrue;
+import static org.robolectric.Shadows.shadowOf;
 
 import android.net.Uri;
+import android.os.Looper;
 import androidx.annotation.Nullable;
 import androidx.media3.common.C;
 import androidx.media3.common.DataReader;
 import androidx.media3.common.Format;
 import androidx.media3.common.MimeTypes;
 import androidx.media3.common.ParserException;
+import androidx.media3.common.util.ConditionVariable;
 import androidx.media3.common.util.Consumer;
 import androidx.media3.common.util.NullableType;
 import androidx.media3.datasource.AssetDataSource;
@@ -66,6 +69,7 @@ import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.robolectric.annotation.Config;
@@ -155,10 +159,10 @@ public final class ProgressiveMediaPeriodTest {
     assertThat(readProgressiveStream(mediaPeriod, /* trackIndex= */ 1, buffer))
         .isEqualTo(C.RESULT_BUFFER_READ);
     assertThat(buffer.isEndOfStream()).isFalse();
-    // Read from stream 0 (unselected video) to check we get no samples.
-    assertThat(readProgressiveStream(mediaPeriod, /* trackIndex= */ 0, buffer))
-        .isEqualTo(C.RESULT_BUFFER_READ);
-    assertThat(buffer.isEndOfStream()).isTrue();
+    // Read from stream 0 (unselected video) to check we get no samples (or at most in-flight
+    // samples from before track selection).
+    assertThat(readProgressiveStreamUntilEndOfStream(mediaPeriod, /* trackIndex= */ 0, buffer))
+        .isAtMost(1);
     mediaPeriod.release();
   }
 
@@ -206,10 +210,10 @@ public final class ProgressiveMediaPeriodTest {
     assertThat(readProgressiveStream(mediaPeriod, /* trackIndex= */ 2, buffer))
         .isEqualTo(C.RESULT_BUFFER_READ);
     assertThat(buffer.isEndOfStream()).isFalse();
-    // Video track (unselected) returns no samples (end of stream).
-    assertThat(readProgressiveStream(mediaPeriod, /* trackIndex= */ 0, buffer))
-        .isEqualTo(C.RESULT_BUFFER_READ);
-    assertThat(buffer.isEndOfStream()).isTrue();
+    // Video track (unselected) returns no samples (or at most in-flight samples from before track
+    // selection).
+    assertThat(readProgressiveStreamUntilEndOfStream(mediaPeriod, /* trackIndex= */ 0, buffer))
+        .isAtMost(1);
     mediaPeriod.release();
   }
 
@@ -492,8 +496,51 @@ public final class ProgressiveMediaPeriodTest {
 
   @Test
   public void selectTracks_disablingAllTracksWhenLoading_cancelsLoading() throws Exception {
+    ConditionVariable blockLoadingCondition = new ConditionVariable();
+    ConditionVariable loadingStartedCondition = new ConditionVariable();
+    blockLoadingCondition.open();
+    AssetDataSource assetDataSource =
+        new AssetDataSource(ApplicationProvider.getApplicationContext());
+    DataSource dataSource =
+        new DataSource() {
+          @Override
+          public void addTransferListener(TransferListener transferListener) {
+            assetDataSource.addTransferListener(transferListener);
+          }
+
+          @Override
+          public long open(DataSpec dataSpec) throws IOException {
+            return assetDataSource.open(dataSpec);
+          }
+
+          @Override
+          public int read(byte[] buffer, int offset, int length) throws IOException {
+            loadingStartedCondition.open();
+            blockLoadingCondition.blockUninterruptible();
+            return assetDataSource.read(buffer, offset, length);
+          }
+
+          @Nullable
+          @Override
+          public Uri getUri() {
+            return assetDataSource.getUri();
+          }
+
+          @Override
+          public Map<String, List<String>> getResponseHeaders() {
+            return assetDataSource.getResponseHeaders();
+          }
+
+          @Override
+          public void close() throws IOException {
+            assetDataSource.close();
+          }
+        };
     ProgressiveMediaPeriod mediaPeriod =
-        createMediaPeriod(Uri.parse("asset://android_asset/media/mp4/sample.mp4"));
+        createMediaPeriod(
+            Uri.parse("asset://android_asset/media/mp4/sample.mp4"),
+            dataSource,
+            new DefaultLoadErrorHandlingPolicy());
     TrackGroupArray trackGroups = mediaPeriod.getTrackGroups();
     @NullableType ExoTrackSelection[] selections = new ExoTrackSelection[trackGroups.length];
     @NullableType SampleStream[] streams = new SampleStream[trackGroups.length];
@@ -508,9 +555,11 @@ public final class ProgressiveMediaPeriodTest {
             streams,
             streamResetFlags,
             /* positionUs= */ 0);
+    blockLoadingCondition.close();
     assertThat(
             mediaPeriod.continueLoading(new LoadingInfo.Builder().setPlaybackPositionUs(0).build()))
         .isTrue();
+    loadingStartedCondition.block();
     assertThat(mediaPeriod.isLoading()).isTrue();
 
     // Disabling all tracks while loading starts canceling.
@@ -527,6 +576,7 @@ public final class ProgressiveMediaPeriodTest {
             mediaPeriod.continueLoading(new LoadingInfo.Builder().setPlaybackPositionUs(0).build()))
         .isFalse();
 
+    blockLoadingCondition.open();
     runMainLooperUntil(() -> !mediaPeriod.isLoading());
     selections[1] =
         new FakeTrackSelection(trackGroups.get(1), new int[] {0}, /* selectedIndex= */ 0);
@@ -774,6 +824,19 @@ public final class ProgressiveMediaPeriodTest {
     return mediaPeriod.readData(trackIndex, new FormatHolder(), buffer, /* readFlags= */ 0);
   }
 
+  private static int readProgressiveStreamUntilEndOfStream(
+      ProgressiveMediaPeriod mediaPeriod, int trackIndex, DecoderInputBuffer buffer) {
+    int readResult;
+    int sampleCount = 0;
+    do {
+      readResult = readProgressiveStream(mediaPeriod, trackIndex, buffer);
+      if (readResult == C.RESULT_BUFFER_READ && !buffer.isEndOfStream()) {
+        sampleCount++;
+      }
+    } while (readResult != C.RESULT_BUFFER_READ || !buffer.isEndOfStream());
+    return sampleCount;
+  }
+
   private static ProgressiveMediaPeriod createMediaPeriod(
       ProgressiveMediaExtractor extractor,
       long imageDurationUs,
@@ -895,6 +958,858 @@ public final class ProgressiveMediaPeriodTest {
       throws TimeoutException {
     ProgressiveMediaPeriod mediaPeriod =
         createMediaPeriod(extractor, imageDurationUs, executor, executorReleased);
+    mediaPeriod.release();
+  }
+
+  @Test
+  public void setEndPositionUs_beforePreparation_setsEndPositionAndReturnsEarly() throws Exception {
+    MediaPeriodId mediaPeriodId = new MediaPeriodId(/* periodUid= */ new Object());
+    ProgressiveMediaPeriod mediaPeriod =
+        new ProgressiveMediaPeriod(
+            Uri.parse("asset://android_asset/media/mp4/sample.mp4"),
+            new AssetDataSource(ApplicationProvider.getApplicationContext()),
+            new BundledExtractorsAdapter(new DefaultExtractorsFactory()),
+            DrmSessionManager.DRM_UNSUPPORTED,
+            new DrmSessionEventListener.EventDispatcher()
+                .withParameters(/* windowIndex= */ 0, mediaPeriodId),
+            new DefaultLoadErrorHandlingPolicy(),
+            new MediaSourceEventListener.EventDispatcher()
+                .withParameters(/* windowIndex= */ 0, mediaPeriodId),
+            /* listener= */ null,
+            new DefaultAllocator(/* trimOnReset= */ true, C.DEFAULT_BUFFER_SEGMENT_SIZE),
+            /* customCacheKey= */ null,
+            ProgressiveMediaSource.DEFAULT_LOADING_CHECK_INTERVAL_BYTES,
+            /* loadOnlySelectedTracks= */ true,
+            /* singleTrackId= */ 0,
+            /* singleTrackFormat= */ null,
+            /* singleSampleDurationUs= */ C.TIME_UNSET,
+            /* downloadExecutor= */ null);
+
+    long resultEndPositionUs = mediaPeriod.setEndPositionUs(500_000);
+
+    assertThat(resultEndPositionUs).isEqualTo(500_000);
+    mediaPeriod.release();
+  }
+
+  @Test
+  public void setEndPositionUs_loweredMidPlayback_discardsUpstreamBuffers() throws Exception {
+    ProgressiveMediaPeriod mediaPeriod =
+        createMediaPeriod(Uri.parse("asset://android_asset/media/mp4/sample.mp4"));
+    TrackGroupArray trackGroups = mediaPeriod.getTrackGroups();
+    @NullableType ExoTrackSelection[] selections = new ExoTrackSelection[trackGroups.length];
+    @NullableType SampleStream[] streams = new SampleStream[trackGroups.length];
+    boolean[] streamResetFlags = new boolean[trackGroups.length];
+    selections[0] =
+        new FakeTrackSelection(trackGroups.get(0), new int[] {0}, /* selectedIndex= */ 0);
+    long unused =
+        mediaPeriod.selectTracks(
+            selections,
+            new boolean[trackGroups.length],
+            streams,
+            streamResetFlags,
+            /* positionUs= */ 0);
+    boolean unusedLoad =
+        mediaPeriod.continueLoading(new LoadingInfo.Builder().setPlaybackPositionUs(0).build());
+    runMainLooperUntil(() -> !mediaPeriod.isLoading());
+
+    long unusedEndPosition = mediaPeriod.setEndPositionUs(300_000);
+
+    FormatHolder formatHolder = new FormatHolder();
+    DecoderInputBuffer buffer =
+        new DecoderInputBuffer(DecoderInputBuffer.BUFFER_REPLACEMENT_MODE_NORMAL);
+    int readResult = streams[0].readData(formatHolder, buffer, /* readFlags= */ 0);
+    assertThat(readResult).isEqualTo(C.RESULT_FORMAT_READ);
+    long lastReadTimeUs = C.TIME_UNSET;
+    while (true) {
+      buffer.clear();
+      readResult = streams[0].readData(formatHolder, buffer, /* readFlags= */ 0);
+      if (readResult == C.RESULT_BUFFER_READ && !buffer.isEndOfStream()) {
+        lastReadTimeUs = buffer.timeUs;
+      } else {
+        break;
+      }
+    }
+    assertThat(lastReadTimeUs).isAtMost(300_000);
+    assertThat(buffer.isEndOfStream()).isTrue();
+    mediaPeriod.release();
+  }
+
+  @Test
+  public void setEndPositionUs_loweredWhileLoading_defersUpstreamDiscardUntilLoadCanceled()
+      throws Exception {
+    ProgressiveMediaPeriod mediaPeriod =
+        createMediaPeriod(Uri.parse("asset://android_asset/media/mp4/sample.mp4"));
+    TrackGroupArray trackGroups = mediaPeriod.getTrackGroups();
+    @NullableType ExoTrackSelection[] selections = new ExoTrackSelection[trackGroups.length];
+    @NullableType SampleStream[] streams = new SampleStream[trackGroups.length];
+    boolean[] streamResetFlags = new boolean[trackGroups.length];
+    selections[0] =
+        new FakeTrackSelection(trackGroups.get(0), new int[] {0}, /* selectedIndex= */ 0);
+    long unused =
+        mediaPeriod.selectTracks(
+            selections,
+            new boolean[trackGroups.length],
+            streams,
+            streamResetFlags,
+            /* positionUs= */ 0);
+    boolean unusedLoad =
+        mediaPeriod.continueLoading(new LoadingInfo.Builder().setPlaybackPositionUs(0).build());
+    assertThat(mediaPeriod.isLoading()).isTrue();
+
+    long unusedEndPosition = mediaPeriod.setEndPositionUs(300_000);
+    runMainLooperUntil(() -> !mediaPeriod.isLoading());
+
+    assertThat(mediaPeriod.isLoading()).isFalse();
+    FormatHolder formatHolder = new FormatHolder();
+    DecoderInputBuffer buffer =
+        new DecoderInputBuffer(DecoderInputBuffer.BUFFER_REPLACEMENT_MODE_NORMAL);
+    int readResult = streams[0].readData(formatHolder, buffer, /* readFlags= */ 0);
+    assertThat(readResult).isEqualTo(C.RESULT_FORMAT_READ);
+    long lastReadTimeUs = C.TIME_UNSET;
+    while (true) {
+      buffer.clear();
+      readResult = streams[0].readData(formatHolder, buffer, /* readFlags= */ 0);
+      if (readResult == C.RESULT_BUFFER_READ && !buffer.isEndOfStream()) {
+        lastReadTimeUs = buffer.timeUs;
+      } else {
+        break;
+      }
+    }
+    assertThat(lastReadTimeUs).isAtMost(300_000);
+    assertThat(buffer.isEndOfStream()).isTrue();
+    mediaPeriod.release();
+  }
+
+  @Test
+  public void setEndPositionUs_beforeTrackSelection_doesNotPreventLoadingWhenTracksSelectedLater()
+      throws Exception {
+    ProgressiveMediaPeriod mediaPeriod =
+        createMediaPeriod(Uri.parse("asset://android_asset/media/mp4/sample.mp4"));
+    TrackGroupArray trackGroups = mediaPeriod.getTrackGroups();
+    @NullableType ExoTrackSelection[] selections = new ExoTrackSelection[trackGroups.length];
+    @NullableType SampleStream[] streams = new SampleStream[trackGroups.length];
+    boolean[] streamResetFlags = new boolean[trackGroups.length];
+
+    // Set end position when prepared but enabledTrackCount == 0.
+    long unusedEndPosition = mediaPeriod.setEndPositionUs(300_000);
+
+    // Later select a track and start loading.
+    selections[0] =
+        new FakeTrackSelection(trackGroups.get(0), new int[] {0}, /* selectedIndex= */ 0);
+    long unused =
+        mediaPeriod.selectTracks(
+            selections,
+            new boolean[trackGroups.length],
+            streams,
+            streamResetFlags,
+            /* positionUs= */ 0);
+
+    assertThat(
+            mediaPeriod.continueLoading(new LoadingInfo.Builder().setPlaybackPositionUs(0).build()))
+        .isTrue();
+    runMainLooperUntil(() -> !mediaPeriod.isLoading());
+
+    FormatHolder formatHolder = new FormatHolder();
+    DecoderInputBuffer buffer =
+        new DecoderInputBuffer(DecoderInputBuffer.BUFFER_REPLACEMENT_MODE_NORMAL);
+    int readResult = streams[0].readData(formatHolder, buffer, /* readFlags= */ 0);
+    assertThat(readResult).isEqualTo(C.RESULT_FORMAT_READ);
+    long lastReadTimeUs = C.TIME_UNSET;
+    while (true) {
+      buffer.clear();
+      readResult = streams[0].readData(formatHolder, buffer, /* readFlags= */ 0);
+      if (readResult == C.RESULT_BUFFER_READ && !buffer.isEndOfStream()) {
+        lastReadTimeUs = buffer.timeUs;
+      } else {
+        break;
+      }
+    }
+    assertThat(lastReadTimeUs).isAtMost(300_000);
+    assertThat(buffer.isEndOfStream()).isTrue();
+    mediaPeriod.release();
+  }
+
+  @Test
+  public void setEndPositionUs_afterFatalError_doesNotClearFatalError() throws Exception {
+    FatalErrorDataSource dataSource =
+        new FatalErrorDataSource(new AssetDataSource(ApplicationProvider.getApplicationContext()));
+    ProgressiveMediaPeriod mediaPeriod =
+        createMediaPeriod(
+            Uri.parse("asset://android_asset/media/mp4/sample.mp4"),
+            dataSource,
+            new DefaultLoadErrorHandlingPolicy());
+
+    TrackGroupArray trackGroups = mediaPeriod.getTrackGroups();
+    @NullableType ExoTrackSelection[] selections = new ExoTrackSelection[trackGroups.length];
+    @NullableType SampleStream[] streams = new SampleStream[trackGroups.length];
+    boolean[] streamResetFlags = new boolean[trackGroups.length];
+    selections[0] =
+        new FakeTrackSelection(trackGroups.get(0), new int[] {0}, /* selectedIndex= */ 0);
+
+    long unused =
+        mediaPeriod.selectTracks(
+            selections,
+            new boolean[trackGroups.length],
+            streams,
+            streamResetFlags,
+            /* positionUs= */ 0);
+    boolean unusedLoad =
+        mediaPeriod.continueLoading(new LoadingInfo.Builder().setPlaybackPositionUs(0).build());
+    runMainLooperUntil(() -> !mediaPeriod.isLoading());
+
+    // Reset track selection when idle so continueLoading can start a fresh load.
+    Arrays.fill(selections, null);
+    unused =
+        mediaPeriod.selectTracks(
+            selections,
+            new boolean[trackGroups.length],
+            streams,
+            streamResetFlags,
+            /* positionUs= */ 0);
+    selections[0] =
+        new FakeTrackSelection(trackGroups.get(0), new int[] {0}, /* selectedIndex= */ 0);
+    unused =
+        mediaPeriod.selectTracks(
+            selections,
+            new boolean[trackGroups.length],
+            streams,
+            streamResetFlags,
+            /* positionUs= */ 0);
+
+    dataSource.setThrowErrorAfterPrepare(true);
+    unusedLoad =
+        mediaPeriod.continueLoading(new LoadingInfo.Builder().setPlaybackPositionUs(0).build());
+    runMainLooperUntil(
+        () -> {
+          try {
+            mediaPeriod.maybeThrowPrepareError();
+            return false;
+          } catch (IOException e) {
+            return true;
+          }
+        });
+    assertThrows(ParserException.class, mediaPeriod::maybeThrowPrepareError);
+    assertThat(
+            mediaPeriod.continueLoading(new LoadingInfo.Builder().setPlaybackPositionUs(0).build()))
+        .isFalse();
+
+    // Setting end position while in fatal error should NOT transition to CLIPPED_FINISHED.
+    long unusedEnd = mediaPeriod.setEndPositionUs(300_000);
+    assertThat(
+            mediaPeriod.continueLoading(new LoadingInfo.Builder().setPlaybackPositionUs(0).build()))
+        .isFalse();
+    mediaPeriod.release();
+  }
+
+  @Test
+  public void setEndPositionUs_onlyNonAvTrackSelected_loadsUntilEndPosition() throws Exception {
+    ProgressiveMediaPeriod mediaPeriod =
+        createMediaPeriod(Uri.parse("asset://android_asset/media/mp4/sample_with_vobsub.mp4"));
+    TrackGroupArray trackGroups = mediaPeriod.getTrackGroups();
+    // Verify sample_with_vobsub.mp4 has Video, Audio, and Text tracks.
+    assertThat(trackGroups.get(0).type).isEqualTo(C.TRACK_TYPE_VIDEO);
+    assertThat(trackGroups.get(1).type).isEqualTo(C.TRACK_TYPE_AUDIO);
+    assertThat(trackGroups.get(2).type).isEqualTo(C.TRACK_TYPE_TEXT);
+
+    @NullableType ExoTrackSelection[] selections = new ExoTrackSelection[trackGroups.length];
+    @NullableType SampleStream[] streams = new SampleStream[trackGroups.length];
+    boolean[] streamResetFlags = new boolean[trackGroups.length];
+    // Select ONLY the text track (index 2).
+    selections[2] =
+        new FakeTrackSelection(trackGroups.get(2), new int[] {0}, /* selectedIndex= */ 0);
+
+    long unused =
+        mediaPeriod.selectTracks(
+            selections,
+            new boolean[trackGroups.length],
+            streams,
+            streamResetFlags,
+            /* positionUs= */ 0);
+    assertThat(streams[2]).isNotNull();
+
+    // Clip at 300ms. Since only a non-AV track is selected, it must NOT immediately assume the
+    // end position is reached, and should load until 300ms.
+    long unusedEnd = mediaPeriod.setEndPositionUs(300_000);
+    boolean unusedLoad =
+        mediaPeriod.continueLoading(new LoadingInfo.Builder().setPlaybackPositionUs(0).build());
+    runMainLooperUntil(
+        () -> {
+          mediaPeriod.reevaluateBuffer(/* positionUs= */ 0);
+          return !mediaPeriod.isLoading();
+        });
+
+    FormatHolder formatHolder = new FormatHolder();
+    DecoderInputBuffer buffer =
+        new DecoderInputBuffer(DecoderInputBuffer.BUFFER_REPLACEMENT_MODE_NORMAL);
+    int readResult = streams[2].readData(formatHolder, buffer, /* readFlags= */ 0);
+    assertThat(readResult).isEqualTo(C.RESULT_FORMAT_READ);
+    long lastReadTimeUs = C.TIME_UNSET;
+    while (true) {
+      buffer.clear();
+      readResult = streams[2].readData(formatHolder, buffer, /* readFlags= */ 0);
+      if (readResult == C.RESULT_BUFFER_READ && !buffer.isEndOfStream()) {
+        lastReadTimeUs = buffer.timeUs;
+      } else {
+        break;
+      }
+    }
+    assertThat(lastReadTimeUs).isAtMost(300_000);
+    assertThat(buffer.isEndOfStream()).isTrue();
+    mediaPeriod.release();
+  }
+
+  @Test
+  public void setEndPositionUs_reducedTwice_discardsUpstreamBuffersToLatestEndPosition()
+      throws Exception {
+    ProgressiveMediaPeriod mediaPeriod =
+        createMediaPeriod(Uri.parse("asset://android_asset/media/mp4/sample.mp4"));
+    TrackGroupArray trackGroups = mediaPeriod.getTrackGroups();
+    @NullableType ExoTrackSelection[] selections = new ExoTrackSelection[trackGroups.length];
+    @NullableType SampleStream[] streams = new SampleStream[trackGroups.length];
+    boolean[] streamResetFlags = new boolean[trackGroups.length];
+    selections[0] =
+        new FakeTrackSelection(trackGroups.get(0), new int[] {0}, /* selectedIndex= */ 0);
+    long unused =
+        mediaPeriod.selectTracks(
+            selections,
+            new boolean[trackGroups.length],
+            streams,
+            streamResetFlags,
+            /* positionUs= */ 0);
+    boolean unusedLoad =
+        mediaPeriod.continueLoading(new LoadingInfo.Builder().setPlaybackPositionUs(0).build());
+    runMainLooperUntil(() -> !mediaPeriod.isLoading());
+
+    // Reduce end position first to 600ms, then further to 300ms.
+    long unusedEndPosition1 = mediaPeriod.setEndPositionUs(600_000);
+    long unusedEndPosition2 = mediaPeriod.setEndPositionUs(300_000);
+
+    FormatHolder formatHolder = new FormatHolder();
+    DecoderInputBuffer buffer =
+        new DecoderInputBuffer(DecoderInputBuffer.BUFFER_REPLACEMENT_MODE_NORMAL);
+    int readResult = streams[0].readData(formatHolder, buffer, /* readFlags= */ 0);
+    assertThat(readResult).isEqualTo(C.RESULT_FORMAT_READ);
+    long lastReadTimeUs = C.TIME_UNSET;
+    while (true) {
+      buffer.clear();
+      readResult = streams[0].readData(formatHolder, buffer, /* readFlags= */ 0);
+      if (readResult == C.RESULT_BUFFER_READ && !buffer.isEndOfStream()) {
+        lastReadTimeUs = buffer.timeUs;
+      } else {
+        break;
+      }
+    }
+    assertThat(lastReadTimeUs).isAtMost(300_000);
+    assertThat(buffer.isEndOfStream()).isTrue();
+    mediaPeriod.release();
+  }
+
+  @Test
+  public void setEndPositionUs_extendedAfterFinished_calculatesMinAvResumePositionAndResumes()
+      throws Exception {
+    ProgressiveMediaPeriod mediaPeriod =
+        createMediaPeriod(Uri.parse("asset://android_asset/media/mp4/sample.mp4"));
+    TrackGroupArray trackGroups = mediaPeriod.getTrackGroups();
+    @NullableType ExoTrackSelection[] selections = new ExoTrackSelection[trackGroups.length];
+    @NullableType SampleStream[] streams = new SampleStream[trackGroups.length];
+    boolean[] streamResetFlags = new boolean[trackGroups.length];
+    selections[0] =
+        new FakeTrackSelection(trackGroups.get(0), new int[] {0}, /* selectedIndex= */ 0);
+    long unused =
+        mediaPeriod.selectTracks(
+            selections,
+            new boolean[trackGroups.length],
+            streams,
+            streamResetFlags,
+            /* positionUs= */ 0);
+    long unusedEndPosition1 = mediaPeriod.setEndPositionUs(300_000);
+    boolean unusedLoad =
+        mediaPeriod.continueLoading(new LoadingInfo.Builder().setPlaybackPositionUs(0).build());
+    runMainLooperUntil(
+        () -> {
+          mediaPeriod.reevaluateBuffer(/* positionUs= */ 0);
+          return mediaPeriod.getBufferedPositionUs() == C.TIME_END_OF_SOURCE;
+        });
+    shadowOf(Looper.getMainLooper()).idle();
+
+    // Extend end position after loading finished at 300_000us.
+    long unusedEndPosition2 = mediaPeriod.setEndPositionUs(600_000);
+    boolean unusedLoad2 =
+        mediaPeriod.continueLoading(new LoadingInfo.Builder().setPlaybackPositionUs(0).build());
+    runMainLooperUntil(
+        () -> {
+          mediaPeriod.reevaluateBuffer(/* positionUs= */ 0);
+          return mediaPeriod.getBufferedPositionUs() == C.TIME_END_OF_SOURCE;
+        });
+    shadowOf(Looper.getMainLooper()).idle();
+
+    FormatHolder formatHolder = new FormatHolder();
+    DecoderInputBuffer buffer =
+        new DecoderInputBuffer(DecoderInputBuffer.BUFFER_REPLACEMENT_MODE_NORMAL);
+    int readResult = streams[0].readData(formatHolder, buffer, /* readFlags= */ 0);
+    assertThat(readResult).isEqualTo(C.RESULT_FORMAT_READ);
+    long lastReadTimeUs = C.TIME_UNSET;
+    while (true) {
+      buffer.clear();
+      readResult = streams[0].readData(formatHolder, buffer, /* readFlags= */ 0);
+      if (readResult == C.RESULT_BUFFER_READ && !buffer.isEndOfStream()) {
+        lastReadTimeUs = buffer.timeUs;
+      } else {
+        break;
+      }
+    }
+    assertThat(lastReadTimeUs).isGreaterThan(300_000);
+    assertThat(lastReadTimeUs).isAtMost(600_000);
+    assertThat(buffer.isEndOfStream()).isTrue();
+    mediaPeriod.release();
+  }
+
+  @Test
+  public void setEndPositionUs_extendedWhileCancelingForClipping_resumesLoadingToNewEnd()
+      throws Exception {
+    ProgressiveMediaPeriod mediaPeriod =
+        createMediaPeriod(Uri.parse("asset://android_asset/media/mp4/sample.mp4"));
+    TrackGroupArray trackGroups = mediaPeriod.getTrackGroups();
+    @NullableType ExoTrackSelection[] selections = new ExoTrackSelection[trackGroups.length];
+    @NullableType SampleStream[] streams = new SampleStream[trackGroups.length];
+    boolean[] streamResetFlags = new boolean[trackGroups.length];
+    selections[0] =
+        new FakeTrackSelection(trackGroups.get(0), new int[] {0}, /* selectedIndex= */ 0);
+    long unused =
+        mediaPeriod.selectTracks(
+            selections,
+            new boolean[trackGroups.length],
+            streams,
+            streamResetFlags,
+            /* positionUs= */ 0);
+    boolean unusedLoad =
+        mediaPeriod.continueLoading(new LoadingInfo.Builder().setPlaybackPositionUs(0).build());
+    assertThat(mediaPeriod.isLoading()).isTrue();
+
+    // Lower end position while loading to trigger cancellation for clipping.
+    long unusedEndPosition1 = mediaPeriod.setEndPositionUs(300_000);
+    // Extend end position before cancellation completes.
+    long unusedEndPosition2 = mediaPeriod.setEndPositionUs(600_000);
+
+    runMainLooperUntil(
+        () -> {
+          mediaPeriod.reevaluateBuffer(/* positionUs= */ 0);
+          return mediaPeriod.getBufferedPositionUs() == C.TIME_END_OF_SOURCE;
+        });
+    shadowOf(Looper.getMainLooper()).idle();
+
+    FormatHolder formatHolder = new FormatHolder();
+    DecoderInputBuffer buffer =
+        new DecoderInputBuffer(DecoderInputBuffer.BUFFER_REPLACEMENT_MODE_NORMAL);
+    int readResult = streams[0].readData(formatHolder, buffer, /* readFlags= */ 0);
+    assertThat(readResult).isEqualTo(C.RESULT_FORMAT_READ);
+    long lastReadTimeUs = C.TIME_UNSET;
+    while (true) {
+      buffer.clear();
+      readResult = streams[0].readData(formatHolder, buffer, /* readFlags= */ 0);
+      if (readResult == C.RESULT_BUFFER_READ && !buffer.isEndOfStream()) {
+        lastReadTimeUs = buffer.timeUs;
+      } else {
+        break;
+      }
+    }
+    assertThat(lastReadTimeUs).isGreaterThan(300_000);
+    assertThat(lastReadTimeUs).isAtMost(600_000);
+    assertThat(buffer.isEndOfStream()).isTrue();
+    mediaPeriod.release();
+  }
+
+  @Test
+  public void
+      setEndPositionUs_extendedAfterFinished_loadErrorDuringResumption_retriesFromFailurePosition()
+          throws Exception {
+    AtomicInteger openCount = new AtomicInteger();
+    DataSource underlyingDataSource =
+        new AssetDataSource(ApplicationProvider.getApplicationContext());
+    DataSource dataSource =
+        new DataSource() {
+          @Override
+          public void addTransferListener(TransferListener transferListener) {
+            underlyingDataSource.addTransferListener(transferListener);
+          }
+
+          @Override
+          public long open(DataSpec dataSpec) throws IOException {
+            if (openCount.incrementAndGet() == 2) {
+              throw new IOException("Simulated transient network error on resumption");
+            }
+            return underlyingDataSource.open(dataSpec);
+          }
+
+          @Override
+          public int read(byte[] buffer, int offset, int length) throws IOException {
+            return underlyingDataSource.read(buffer, offset, length);
+          }
+
+          @Override
+          public Uri getUri() {
+            return underlyingDataSource.getUri();
+          }
+
+          @Override
+          public void close() throws IOException {
+            underlyingDataSource.close();
+          }
+        };
+
+    ProgressiveMediaPeriod mediaPeriod =
+        createMediaPeriod(
+            Uri.parse("asset://android_asset/media/mp4/sample.mp4"),
+            dataSource,
+            new DefaultLoadErrorHandlingPolicy(/* minimumLoadableRetryCount= */ 3) {
+              @Override
+              public long getRetryDelayMsFor(LoadErrorInfo loadErrorInfo) {
+                return 0; // Retry immediately
+              }
+            });
+    TrackGroupArray trackGroups = mediaPeriod.getTrackGroups();
+    @NullableType ExoTrackSelection[] selections = new ExoTrackSelection[trackGroups.length];
+    @NullableType SampleStream[] streams = new SampleStream[trackGroups.length];
+    boolean[] streamResetFlags = new boolean[trackGroups.length];
+    selections[0] =
+        new FakeTrackSelection(trackGroups.get(0), new int[] {0}, /* selectedIndex= */ 0);
+    long unused =
+        mediaPeriod.selectTracks(
+            selections,
+            new boolean[trackGroups.length],
+            streams,
+            streamResetFlags,
+            /* positionUs= */ 0);
+    long unusedEndPosition1 = mediaPeriod.setEndPositionUs(300_000);
+    boolean unusedLoad =
+        mediaPeriod.continueLoading(new LoadingInfo.Builder().setPlaybackPositionUs(0).build());
+    runMainLooperUntil(
+        () -> {
+          mediaPeriod.reevaluateBuffer(/* positionUs= */ 0);
+          return mediaPeriod.getBufferedPositionUs() == C.TIME_END_OF_SOURCE;
+        });
+    shadowOf(Looper.getMainLooper()).idle();
+
+    assertThat(openCount.get()).isEqualTo(1);
+
+    // Extend end position after loading finished at 300_000us.
+    long unusedEndPosition2 = mediaPeriod.setEndPositionUs(600_000);
+    boolean unusedLoad2 =
+        mediaPeriod.continueLoading(new LoadingInfo.Builder().setPlaybackPositionUs(0).build());
+    runMainLooperUntil(
+        () -> {
+          mediaPeriod.reevaluateBuffer(/* positionUs= */ 0);
+          return openCount.get() >= 3
+              && mediaPeriod.getBufferedPositionUs() == C.TIME_END_OF_SOURCE;
+        });
+    shadowOf(Looper.getMainLooper()).idle();
+
+    // Verified that openCount reached at least 3 (1 initial, 2 simulated failure, 3 retry success).
+    assertThat(openCount.get()).isAtLeast(3);
+
+    FormatHolder formatHolder = new FormatHolder();
+    DecoderInputBuffer buffer =
+        new DecoderInputBuffer(DecoderInputBuffer.BUFFER_REPLACEMENT_MODE_NORMAL);
+    int readResult = streams[0].readData(formatHolder, buffer, /* readFlags= */ 0);
+    assertThat(readResult).isEqualTo(C.RESULT_FORMAT_READ);
+    long lastReadTimeUs = C.TIME_UNSET;
+    while (true) {
+      buffer.clear();
+      readResult = streams[0].readData(formatHolder, buffer, /* readFlags= */ 0);
+      if (readResult == C.RESULT_BUFFER_READ && !buffer.isEndOfStream()) {
+        lastReadTimeUs = buffer.timeUs;
+      } else {
+        break;
+      }
+    }
+    assertThat(lastReadTimeUs).isGreaterThan(300_000);
+    assertThat(lastReadTimeUs).isAtMost(600_000);
+    assertThat(buffer.isEndOfStream()).isTrue();
+    mediaPeriod.release();
+  }
+
+  @Test
+  public void setEndPositionUs_extendedToEndOfSourceAfterFinished_resumesLoadingToEnd()
+      throws Exception {
+    ProgressiveMediaPeriod mediaPeriod =
+        createMediaPeriod(Uri.parse("asset://android_asset/media/mp4/sample.mp4"));
+    TrackGroupArray trackGroups = mediaPeriod.getTrackGroups();
+    @NullableType ExoTrackSelection[] selections = new ExoTrackSelection[trackGroups.length];
+    @NullableType SampleStream[] streams = new SampleStream[trackGroups.length];
+    boolean[] streamResetFlags = new boolean[trackGroups.length];
+    selections[0] =
+        new FakeTrackSelection(trackGroups.get(0), new int[] {0}, /* selectedIndex= */ 0);
+    long unused =
+        mediaPeriod.selectTracks(
+            selections,
+            new boolean[trackGroups.length],
+            streams,
+            streamResetFlags,
+            /* positionUs= */ 0);
+    long unusedEndPosition1 = mediaPeriod.setEndPositionUs(300_000);
+    boolean unusedLoad =
+        mediaPeriod.continueLoading(new LoadingInfo.Builder().setPlaybackPositionUs(0).build());
+    runMainLooperUntil(
+        () -> {
+          mediaPeriod.reevaluateBuffer(/* positionUs= */ 0);
+          return mediaPeriod.getBufferedPositionUs() == C.TIME_END_OF_SOURCE;
+        });
+    shadowOf(Looper.getMainLooper()).idle();
+
+    // Extend end position to C.TIME_END_OF_SOURCE after loading finished at 300_000us.
+    long unusedEndPosition2 = mediaPeriod.setEndPositionUs(C.TIME_END_OF_SOURCE);
+    boolean unusedLoad2 =
+        mediaPeriod.continueLoading(new LoadingInfo.Builder().setPlaybackPositionUs(0).build());
+    runMainLooperUntil(
+        () -> {
+          mediaPeriod.reevaluateBuffer(/* positionUs= */ 0);
+          return mediaPeriod.getBufferedPositionUs() == C.TIME_END_OF_SOURCE
+              && !mediaPeriod.isLoading();
+        });
+    shadowOf(Looper.getMainLooper()).idle();
+
+    FormatHolder formatHolder = new FormatHolder();
+    DecoderInputBuffer buffer =
+        new DecoderInputBuffer(DecoderInputBuffer.BUFFER_REPLACEMENT_MODE_NORMAL);
+    int readResult = streams[0].readData(formatHolder, buffer, /* readFlags= */ 0);
+    assertThat(readResult).isEqualTo(C.RESULT_FORMAT_READ);
+    long lastReadTimeUs = C.TIME_UNSET;
+    while (true) {
+      buffer.clear();
+      readResult = streams[0].readData(formatHolder, buffer, /* readFlags= */ 0);
+      if (readResult == C.RESULT_BUFFER_READ && !buffer.isEndOfStream()) {
+        lastReadTimeUs = buffer.timeUs;
+      } else {
+        break;
+      }
+    }
+    assertThat(lastReadTimeUs).isGreaterThan(300_000);
+    assertThat(buffer.isEndOfStream()).isTrue();
+    mediaPeriod.release();
+  }
+
+  @Test
+  public void setEndPositionUs_extendedToEndOfSourceWhileCancelingForClipping_resumesLoadingToEnd()
+      throws Exception {
+    ProgressiveMediaPeriod mediaPeriod =
+        createMediaPeriod(Uri.parse("asset://android_asset/media/mp4/sample.mp4"));
+    TrackGroupArray trackGroups = mediaPeriod.getTrackGroups();
+    @NullableType ExoTrackSelection[] selections = new ExoTrackSelection[trackGroups.length];
+    @NullableType SampleStream[] streams = new SampleStream[trackGroups.length];
+    boolean[] streamResetFlags = new boolean[trackGroups.length];
+    selections[0] =
+        new FakeTrackSelection(trackGroups.get(0), new int[] {0}, /* selectedIndex= */ 0);
+    long unused =
+        mediaPeriod.selectTracks(
+            selections,
+            new boolean[trackGroups.length],
+            streams,
+            streamResetFlags,
+            /* positionUs= */ 0);
+    boolean unusedLoad =
+        mediaPeriod.continueLoading(new LoadingInfo.Builder().setPlaybackPositionUs(0).build());
+    assertThat(mediaPeriod.isLoading()).isTrue();
+
+    // Lower end position while loading to trigger cancellation for clipping.
+    long unusedEndPosition1 = mediaPeriod.setEndPositionUs(300_000);
+    // Extend end position to C.TIME_END_OF_SOURCE before cancellation completes.
+    long unusedEndPosition2 = mediaPeriod.setEndPositionUs(C.TIME_END_OF_SOURCE);
+
+    runMainLooperUntil(() -> !mediaPeriod.isLoading());
+
+    FormatHolder formatHolder = new FormatHolder();
+    DecoderInputBuffer buffer =
+        new DecoderInputBuffer(DecoderInputBuffer.BUFFER_REPLACEMENT_MODE_NORMAL);
+    int readResult = streams[0].readData(formatHolder, buffer, /* readFlags= */ 0);
+    assertThat(readResult).isEqualTo(C.RESULT_FORMAT_READ);
+    long lastReadTimeUs = C.TIME_UNSET;
+    while (true) {
+      buffer.clear();
+      readResult = streams[0].readData(formatHolder, buffer, /* readFlags= */ 0);
+      if (readResult == C.RESULT_BUFFER_READ && !buffer.isEndOfStream()) {
+        lastReadTimeUs = buffer.timeUs;
+      } else {
+        break;
+      }
+    }
+    assertThat(lastReadTimeUs).isGreaterThan(300_000);
+    assertThat(buffer.isEndOfStream()).isTrue();
+    mediaPeriod.release();
+  }
+
+  @Test
+  public void seekToUs_beyondEndPositionUs_signalsEndOfStream() throws Exception {
+    ProgressiveMediaPeriod mediaPeriod =
+        createMediaPeriod(Uri.parse("asset://android_asset/media/mp4/sample.mp4"));
+    TrackGroupArray trackGroups = mediaPeriod.getTrackGroups();
+    @NullableType ExoTrackSelection[] selections = new ExoTrackSelection[trackGroups.length];
+    @NullableType SampleStream[] streams = new SampleStream[trackGroups.length];
+    boolean[] streamResetFlags = new boolean[trackGroups.length];
+    selections[0] =
+        new FakeTrackSelection(trackGroups.get(0), new int[] {0}, /* selectedIndex= */ 0);
+    long unused =
+        mediaPeriod.selectTracks(
+            selections,
+            new boolean[trackGroups.length],
+            streams,
+            streamResetFlags,
+            /* positionUs= */ 0);
+
+    // Initial load up to 300ms.
+    long unusedEndPosition = mediaPeriod.setEndPositionUs(300_000);
+    boolean unusedLoad =
+        mediaPeriod.continueLoading(new LoadingInfo.Builder().setPlaybackPositionUs(0).build());
+    runMainLooperUntil(
+        () -> {
+          mediaPeriod.reevaluateBuffer(/* positionUs= */ 0);
+          return mediaPeriod.getBufferedPositionUs() == C.TIME_END_OF_SOURCE;
+        });
+    shadowOf(Looper.getMainLooper()).idle();
+
+    // Seek to 500ms (beyond clip end of 300ms).
+    long seekTimeUs = mediaPeriod.seekToUs(500_000);
+    assertThat(seekTimeUs).isEqualTo(500_000);
+    runMainLooperUntil(
+        () -> {
+          boolean unused2 =
+              mediaPeriod.continueLoading(
+                  new LoadingInfo.Builder().setPlaybackPositionUs(500_000).build());
+          mediaPeriod.reevaluateBuffer(/* positionUs= */ 500_000);
+          return !mediaPeriod.isLoading();
+        });
+    shadowOf(Looper.getMainLooper()).idle();
+    assertThat(mediaPeriod.isLoading()).isFalse();
+
+    // Verify stream signals EOS without stalling.
+    FormatHolder formatHolder = new FormatHolder();
+    DecoderInputBuffer buffer =
+        new DecoderInputBuffer(DecoderInputBuffer.BUFFER_REPLACEMENT_MODE_NORMAL);
+    int readResult = streams[0].readData(formatHolder, buffer, /* readFlags= */ 0);
+    if (readResult == C.RESULT_FORMAT_READ) {
+      buffer.clear();
+      readResult = streams[0].readData(formatHolder, buffer, /* readFlags= */ 0);
+    }
+    while (readResult == C.RESULT_BUFFER_READ && !buffer.isEndOfStream()) {
+      buffer.clear();
+      readResult = streams[0].readData(formatHolder, buffer, /* readFlags= */ 0);
+    }
+    assertThat(readResult).isEqualTo(C.RESULT_BUFFER_READ);
+    assertThat(buffer.isEndOfStream()).isTrue();
+    mediaPeriod.release();
+  }
+
+  @Test
+  public void setEndPositionUs_reducedThenExtendedThenReduced_discardsToFinalEndPosition()
+      throws Exception {
+    ProgressiveMediaPeriod mediaPeriod =
+        createMediaPeriod(Uri.parse("asset://android_asset/media/mp4/sample.mp4"));
+    TrackGroupArray trackGroups = mediaPeriod.getTrackGroups();
+    @NullableType ExoTrackSelection[] selections = new ExoTrackSelection[trackGroups.length];
+    @NullableType SampleStream[] streams = new SampleStream[trackGroups.length];
+    boolean[] streamResetFlags = new boolean[trackGroups.length];
+    selections[0] =
+        new FakeTrackSelection(trackGroups.get(0), new int[] {0}, /* selectedIndex= */ 0);
+    long unused =
+        mediaPeriod.selectTracks(
+            selections,
+            new boolean[trackGroups.length],
+            streams,
+            streamResetFlags,
+            /* positionUs= */ 0);
+    boolean unusedLoad =
+        mediaPeriod.continueLoading(new LoadingInfo.Builder().setPlaybackPositionUs(0).build());
+    assertThat(mediaPeriod.isLoading()).isTrue();
+
+    // 1. Lower end position to 300ms while loading.
+    long unusedEndPosition1 = mediaPeriod.setEndPositionUs(300_000);
+    // 2. Extend end position to 600ms before cancellation finishes.
+    long unusedEndPosition2 = mediaPeriod.setEndPositionUs(600_000);
+    // 3. Reduce end position again to 450ms.
+    long unusedEndPosition3 = mediaPeriod.setEndPositionUs(450_000);
+
+    runMainLooperUntil(
+        () -> {
+          mediaPeriod.reevaluateBuffer(/* positionUs= */ 0);
+          return !mediaPeriod.isLoading();
+        });
+    shadowOf(Looper.getMainLooper()).idle();
+
+    FormatHolder formatHolder = new FormatHolder();
+    DecoderInputBuffer buffer =
+        new DecoderInputBuffer(DecoderInputBuffer.BUFFER_REPLACEMENT_MODE_NORMAL);
+    int readResult = streams[0].readData(formatHolder, buffer, /* readFlags= */ 0);
+    assertThat(readResult).isEqualTo(C.RESULT_FORMAT_READ);
+    long lastReadTimeUs = C.TIME_UNSET;
+    while (true) {
+      buffer.clear();
+      readResult = streams[0].readData(formatHolder, buffer, /* readFlags= */ 0);
+      if (readResult == C.RESULT_BUFFER_READ && !buffer.isEndOfStream()) {
+        lastReadTimeUs = buffer.timeUs;
+      } else {
+        break;
+      }
+    }
+    assertThat(lastReadTimeUs).isAtMost(450_000);
+    assertThat(buffer.isEndOfStream()).isTrue();
+    mediaPeriod.release();
+  }
+
+  @Test
+  public void setEndPositionUs_extendedAfterNaturalEofReached_resumesLoading() throws Exception {
+    ProgressiveMediaPeriod mediaPeriod =
+        createMediaPeriod(Uri.parse("asset://android_asset/media/mp4/sample.mp4"));
+    TrackGroupArray trackGroups = mediaPeriod.getTrackGroups();
+    @NullableType ExoTrackSelection[] selections = new ExoTrackSelection[trackGroups.length];
+    @NullableType SampleStream[] streams = new SampleStream[trackGroups.length];
+    boolean[] streamResetFlags = new boolean[trackGroups.length];
+    selections[0] =
+        new FakeTrackSelection(trackGroups.get(0), new int[] {0}, /* selectedIndex= */ 0);
+    long unused =
+        mediaPeriod.selectTracks(
+            selections,
+            new boolean[trackGroups.length],
+            streams,
+            streamResetFlags,
+            /* positionUs= */ 0);
+
+    // Initial load until entire file reaches natural EOF (STATE_FINISHED).
+    boolean unusedLoad =
+        mediaPeriod.continueLoading(new LoadingInfo.Builder().setPlaybackPositionUs(0).build());
+    runMainLooperUntil(() -> mediaPeriod.getBufferedPositionUs() == C.TIME_END_OF_SOURCE);
+    shadowOf(Looper.getMainLooper()).idle();
+
+    // Clip the stream at 300ms. State transitions FINISHED -> CLIPPED_FINISHED and discards
+    // upstream buffers.
+    long unusedEndPosition1 = mediaPeriod.setEndPositionUs(300_000);
+
+    // Later extend the clip to 600ms. State transitions CLIPPED_FINISHED -> IDLE and loading
+    // resumes.
+    long unusedEndPosition2 = mediaPeriod.setEndPositionUs(600_000);
+    runMainLooperUntil(
+        () -> {
+          mediaPeriod.reevaluateBuffer(/* positionUs= */ 0);
+          return !mediaPeriod.isLoading();
+        });
+    shadowOf(Looper.getMainLooper()).idle();
+
+    FormatHolder formatHolder = new FormatHolder();
+    DecoderInputBuffer buffer =
+        new DecoderInputBuffer(DecoderInputBuffer.BUFFER_REPLACEMENT_MODE_NORMAL);
+    int readResult = streams[0].readData(formatHolder, buffer, /* readFlags= */ 0);
+    assertThat(readResult).isEqualTo(C.RESULT_FORMAT_READ);
+    long lastReadTimeUs = C.TIME_UNSET;
+    while (true) {
+      buffer.clear();
+      readResult = streams[0].readData(formatHolder, buffer, /* readFlags= */ 0);
+      if (readResult == C.RESULT_BUFFER_READ && !buffer.isEndOfStream()) {
+        lastReadTimeUs = buffer.timeUs;
+      } else {
+        break;
+      }
+    }
+    assertThat(lastReadTimeUs).isGreaterThan(300_000);
+    assertThat(lastReadTimeUs).isAtMost(600_000);
+    assertThat(buffer.isEndOfStream()).isTrue();
     mediaPeriod.release();
   }
 

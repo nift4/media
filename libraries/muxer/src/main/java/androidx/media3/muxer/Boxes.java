@@ -62,6 +62,9 @@ import org.checkerframework.checker.nullness.qual.PolyNull;
   /** Total number of bytes in an integer. */
   private static final int BYTES_PER_INTEGER = 4;
 
+  /** Total number of bytes in a long. */
+  private static final int BYTES_PER_LONG = 8;
+
   /** Box size (4 bytes) + Box name (4 bytes) */
   public static final int BOX_HEADER_SIZE = 8;
 
@@ -76,6 +79,9 @@ import org.checkerframework.checker.nullness.qual.PolyNull;
 
   /** The size (in bytes) of the tfhd box content. */
   public static final int TFHD_BOX_CONTENT_SIZE = 4 * BYTES_PER_INTEGER;
+
+  /** The size (in bytes) of the tfdt box content. */
+  public static final int TFDT_BOX_CONTENT_SIZE = BYTES_PER_INTEGER + BYTES_PER_LONG;
 
   /** The maximum size (in bytes) of boxes that have fixed sizes. */
   private static final int MAX_FIXED_LEAF_BOX_SIZE = 200;
@@ -779,6 +785,9 @@ import org.checkerframework.checker.nullness.qual.PolyNull;
         return damrBox(/* mode= */ (short) 0x83FF); // mode set: all enabled for AMR-WB
       case MimeTypes.AUDIO_OPUS:
         return dOpsBox(format);
+      case MimeTypes.AUDIO_E_AC3:
+      case MimeTypes.AUDIO_E_AC3_JOC:
+        return dec3Box(format);
       case MimeTypes.AUDIO_IAMF:
         return iacbBox(format);
       case MimeTypes.AUDIO_RAW:
@@ -1132,19 +1141,34 @@ import org.checkerframework.checker.nullness.qual.PolyNull;
 
   /** Returns the stsz (sample size) box. */
   public static ByteBuffer stsz(List<BufferInfo> writtenSamples) {
-    ByteBuffer contents = ByteBuffer.allocate(writtenSamples.size() * 4 + MAX_FIXED_LEAF_BOX_SIZE);
+    boolean sameSampleSize = !writtenSamples.isEmpty() && writtenSamples.get(0).size != 0;
+    int firstSampleSize = writtenSamples.isEmpty() ? 0 : writtenSamples.get(0).size;
+    if (sameSampleSize) {
+      for (int i = 1; i < writtenSamples.size(); i++) {
+        if (writtenSamples.get(i).size != firstSampleSize) {
+          sameSampleSize = false;
+          break;
+        }
+      }
+    }
+
+    int capacity =
+        sameSampleSize
+            ? MAX_FIXED_LEAF_BOX_SIZE
+            : (writtenSamples.size() * 4 + MAX_FIXED_LEAF_BOX_SIZE);
+    ByteBuffer contents = ByteBuffer.allocate(capacity);
 
     contents.putInt(0x0); // version and flags
 
-    // TODO: b/270583563 - Consider optimizing for identically-sized samples.
-    // sample_size: specifying the default sample size. Set to zero to indicate that the samples
-    // have different sizes and they are stored in the sample size table.
-    contents.putInt(0);
-
-    contents.putInt(writtenSamples.size()); // sample_count
-
-    for (int i = 0; i < writtenSamples.size(); i++) {
-      contents.putInt(writtenSamples.get(i).size);
+    if (sameSampleSize) {
+      contents.putInt(firstSampleSize); // sample_size
+      contents.putInt(writtenSamples.size()); // sample_count
+    } else {
+      contents.putInt(0); // sample_size
+      contents.putInt(writtenSamples.size()); // sample_count
+      for (int i = 0; i < writtenSamples.size(); i++) {
+        contents.putInt(writtenSamples.get(i).size); // entry_size
+      }
     }
 
     contents.flip();
@@ -1301,8 +1325,17 @@ import org.checkerframework.checker.nullness.qual.PolyNull;
   }
 
   /** Returns a track fragment (traf) box. */
-  public static ByteBuffer traf(ByteBuffer tfhdBox, ByteBuffer trunBox) {
-    return BoxUtils.wrapBoxesIntoBox("traf", ImmutableList.of(tfhdBox, trunBox));
+  public static ByteBuffer traf(ByteBuffer tfhdBox, ByteBuffer tfdtBox, ByteBuffer trunBox) {
+    return BoxUtils.wrapBoxesIntoBox("traf", ImmutableList.of(tfhdBox, tfdtBox, trunBox));
+  }
+
+  /** Returns a track fragment base media decode time (tfdt) box. */
+  public static ByteBuffer tfdt(long baseMediaDecodeTime) {
+    ByteBuffer contents = ByteBuffer.allocate(TFDT_BOX_CONTENT_SIZE);
+    contents.putInt(0x01000000); // Version 1 (64-bit), flags = 0
+    contents.putLong(baseMediaDecodeTime);
+    contents.flip();
+    return BoxUtils.wrapIntoBox("tfdt", contents);
   }
 
   /** Returns a track fragment header (tfhd) box. */
@@ -1356,7 +1389,7 @@ import org.checkerframework.checker.nullness.qual.PolyNull;
     return BoxUtils.wrapIntoBox("trun", contents);
   }
 
-  /** Returns the size required for {@link #trun(int, List, int, boolean)} box content. */
+  /** Returns the size required for {@link #trun} box content. */
   public static int getTrunBoxContentSize(int sampleCount, boolean hasBFrame) {
     int trunBoxFixedSize = 3 * BYTES_PER_INTEGER;
     int intWrittenPerSample = hasBFrame ? 4 : 3;
@@ -1521,6 +1554,13 @@ import org.checkerframework.checker.nullness.qual.PolyNull;
 
     contents.flip();
     return BoxUtils.wrapIntoBox("avcC", contents);
+  }
+
+  private static ByteBuffer dec3Box(Format format) {
+    checkArgument(!format.initializationData.isEmpty(), "csd-0 not found in format for dec3 box.");
+    byte[] csd0 = format.initializationData.get(0);
+    checkArgument(csd0.length > 0, "csd-0 is empty for dec3 box.");
+    return BoxUtils.wrapIntoBox("dec3", ByteBuffer.wrap(csd0));
   }
 
   /** Returns the hvcC box as per ISO/IEC 14496-15: 8.3.3.1.2. */
@@ -1845,6 +1885,9 @@ import org.checkerframework.checker.nullness.qual.PolyNull;
         return "s263";
       case MimeTypes.AUDIO_OPUS:
         return "Opus";
+      case MimeTypes.AUDIO_E_AC3:
+      case MimeTypes.AUDIO_E_AC3_JOC:
+        return "ec-3";
       case MimeTypes.AUDIO_IAMF:
         return "iamf";
       case MimeTypes.AUDIO_RAW:
@@ -2132,5 +2175,84 @@ import org.checkerframework.checker.nullness.qual.PolyNull;
     } catch (NumberFormatException e) {
       return DEFAULT_H263_PROFILE_AND_LEVEL;
     }
+  }
+
+  /** Represents an entry in the 'tfra' (Track Fragment Random Access) box. */
+  public static class TfraEntry {
+    public final long time;
+    public final long moofOffset;
+    public final int trafNumber;
+    public final int trunNumber;
+    public final int sampleNumber;
+
+    public TfraEntry(long time, long moofOffset, int trafNumber) {
+      this.time = time;
+      this.moofOffset = moofOffset;
+      this.trafNumber = trafNumber;
+      this.trunNumber = 1;
+      this.sampleNumber = 1;
+    }
+  }
+
+  /** Returns a 'tfra' (Track Fragment Random Access) box. */
+  public static ByteBuffer tfra(int trackId, List<TfraEntry> entries) {
+    int headerSize = 4; // version (1 byte) + flags (3 bytes)
+    int fixedFieldsSize =
+        4 // track_ID (4 bytes)
+            + 4 // length_size_of_traf_num (2 bits), length_size_of_trun_num (2 bits),
+            // length_size_of_sample_num (2 bits), reserved (26 bits)
+            + 4; // number_of_entry (4 bytes)
+
+    int entrySize = 8 + 8 + 1 + 1 + 1;
+    int contentSize = headerSize + fixedFieldsSize + (entries.size() * entrySize);
+
+    ByteBuffer contents = ByteBuffer.allocate(contentSize);
+    contents.putInt(1 << 24); // version 1 (byte 0 = 0x01), flags = 0 (bytes 1-3 = 0x000000)
+    contents.putInt(trackId);
+    // Reserved (26 bits = 0) + length_size_of_traf_num (2 bits = 0: 1 byte)
+    // + length_size_of_trun_num (2 bits = 0: 1 byte) + length_size_of_sample_num (2 bits = 0: 1
+    // byte).
+    contents.putInt(0x00000000);
+    contents.putInt(entries.size());
+
+    for (int i = 0; i < entries.size(); i++) {
+      TfraEntry entry = entries.get(i);
+      checkState(entry.trafNumber <= 255, "trafNumber must fit in 1 byte");
+      checkState(entry.trunNumber <= 255, "trunNumber must fit in 1 byte");
+      checkState(entry.sampleNumber <= 255, "sampleNumber must fit in 1 byte");
+      contents.putLong(entry.time);
+      contents.putLong(entry.moofOffset);
+      contents.put((byte) entry.trafNumber); // 1-based index of traf box in enclosing moof
+      contents.put((byte) entry.trunNumber); // 1-based index of trun box in enclosing traf
+      contents.put((byte) entry.sampleNumber); // 1-based index of sample in enclosing trun
+    }
+
+    contents.flip();
+    return BoxUtils.wrapIntoBox("tfra", contents);
+  }
+
+  /** Returns an 'mfro' (Movie Fragment Random Access Offset) box. */
+  public static ByteBuffer mfro(int mfraSize) {
+    ByteBuffer contents = ByteBuffer.allocate(8);
+    contents.putInt(0x00000000); // version 0, flags = 0
+    contents.putInt(mfraSize);
+    contents.flip();
+    return BoxUtils.wrapIntoBox("mfro", contents);
+  }
+
+  /** Returns an 'mfra' (Movie Fragment Random Access) box containing all tfra boxes and mfro. */
+  public static ByteBuffer mfra(List<ByteBuffer> tfraBoxes) {
+    int totalTfraSize = 0;
+    for (int i = 0; i < tfraBoxes.size(); i++) {
+      totalTfraSize += tfraBoxes.get(i).remaining();
+    }
+    int mfroBoxSize = BOX_HEADER_SIZE + 8; // 16 bytes total
+    int mfraBoxSize = BOX_HEADER_SIZE + totalTfraSize + mfroBoxSize;
+
+    List<ByteBuffer> allBoxes = new ArrayList<>(tfraBoxes.size() + 1);
+    allBoxes.addAll(tfraBoxes);
+    allBoxes.add(mfro(mfraBoxSize));
+
+    return BoxUtils.wrapBoxesIntoBox("mfra", allBoxes);
   }
 }

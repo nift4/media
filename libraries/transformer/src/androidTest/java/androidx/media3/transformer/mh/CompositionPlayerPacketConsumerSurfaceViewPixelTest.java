@@ -26,9 +26,7 @@ import static androidx.media3.test.utils.BitmapPixelTestUtil.readBitmap;
 import static androidx.media3.test.utils.FormatSupportAssumptions.assumeFormatsSupported;
 import static androidx.media3.test.utils.PlayerFence.futureWhen;
 import static androidx.media3.test.utils.TestUtil.assertBitmapsAreSimilar;
-import static androidx.media3.transformer.GlFrameProcessorTestUtil.closeTestingGlResources;
 import static com.google.common.truth.Truth.assertThat;
-import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import static org.junit.Assume.assumeFalse;
 import static org.junit.Assume.assumeTrue;
 
@@ -54,24 +52,20 @@ import androidx.annotation.RequiresApi;
 import androidx.media3.common.C;
 import androidx.media3.common.ColorInfo;
 import androidx.media3.common.Format;
-import androidx.media3.common.GlObjectsProvider;
 import androidx.media3.common.MediaItem;
 import androidx.media3.common.Player;
 import androidx.media3.common.VideoSize;
 import androidx.media3.common.util.ConditionVariable;
-import androidx.media3.common.util.GlUtil.GlException;
-import androidx.media3.common.util.Util;
-import androidx.media3.effect.DefaultGlFrameProcessor;
-import androidx.media3.effect.DefaultGlObjectsProvider;
 import androidx.media3.effect.DefaultHardwareBufferEffectsPipeline;
-import androidx.media3.effect.FrameProcessorUtils;
 import androidx.media3.effect.SimpleGlFrameProcessor;
 import androidx.media3.effect.ndk.HardwareBufferJni;
+import androidx.media3.transformer.AndroidTestUtil;
 import androidx.media3.transformer.Composition;
 import androidx.media3.transformer.CompositionPlayer;
 import androidx.media3.transformer.EditedMediaItem;
 import androidx.media3.transformer.EditedMediaItemSequence;
 import androidx.media3.transformer.FrameWriterToHardwareBufferFrameQueueAdapter;
+import androidx.media3.transformer.GlFrameProcessorTestRule;
 import androidx.media3.transformer.PacketConsumerToFrameProcessorAdapter;
 import androidx.media3.transformer.SurfaceTestActivity;
 import androidx.test.core.app.ApplicationProvider;
@@ -79,8 +73,6 @@ import androidx.test.ext.junit.rules.ActivityScenarioRule;
 import androidx.test.filters.SdkSuppress;
 import androidx.test.platform.app.InstrumentationRegistry;
 import com.google.common.collect.ImmutableList;
-import com.google.common.util.concurrent.ListeningExecutorService;
-import com.google.common.util.concurrent.MoreExecutors;
 import com.google.common.util.concurrent.SettableFuture;
 import java.util.List;
 import java.util.Queue;
@@ -105,7 +97,7 @@ import org.junit.runners.Parameterized.Parameters;
  */
 @Ignore("Only intended to run on internal infra: b/396671260")
 @RunWith(Parameterized.class)
-@SdkSuppress(minSdkVersion = 28)
+@SdkSuppress(minSdkVersion = AndroidTestUtil.HARDWARE_BUFFER_FRAME_PROCESSOR_MIN_SDK)
 public class CompositionPlayerPacketConsumerSurfaceViewPixelTest {
 
   private static final String PACKET_CONSUMER = "packet_consumer";
@@ -137,9 +129,10 @@ public class CompositionPlayerPacketConsumerSurfaceViewPixelTest {
   private @MonotonicNonNull CompositionPlayer compositionPlayer;
   private @MonotonicNonNull SurfaceView surfaceView;
   private @MonotonicNonNull ImageReaderSurfaceHolder surfaceHolder;
-  private @MonotonicNonNull ListeningExecutorService glExecutorService;
-  // Only used for DefaultGlFrameProcessor
-  private @MonotonicNonNull GlObjectsProvider glObjectsProvider;
+
+  @Rule
+  public final GlFrameProcessorTestRule glFrameProcessorTestRule =
+      new GlFrameProcessorTestRule(TEST_TIMEOUT_MS);
 
   private String testId;
 
@@ -147,21 +140,6 @@ public class CompositionPlayerPacketConsumerSurfaceViewPixelTest {
   public void setUp() throws Exception {
     testId = testName.getMethodName();
     rule.getScenario().onActivity(activity -> surfaceView = activity.getSurfaceView());
-    glExecutorService =
-        MoreExecutors.listeningDecorator(Util.newSingleThreadExecutor("PacketProcessor:Effect"));
-    glObjectsProvider = new DefaultGlObjectsProvider();
-    if (mode.equals(DEFAULT_GL_FRAME_PROCESSOR)) {
-      glExecutorService
-          .submit(
-              () -> {
-                try {
-                  FrameProcessorUtils.setupOpenGl(glObjectsProvider);
-                } catch (GlException e) {
-                  throw new AssertionError(e);
-                }
-              })
-          .get(TEST_TIMEOUT_MS, MILLISECONDS);
-    }
   }
 
   @After
@@ -175,17 +153,6 @@ public class CompositionPlayerPacketConsumerSurfaceViewPixelTest {
     rule.getScenario().close();
     if (surfaceHolder != null) {
       surfaceHolder.release();
-    }
-    @Nullable Exception releasingException = null;
-    if (mode.equals(DEFAULT_GL_FRAME_PROCESSOR)) {
-      releasingException =
-          closeTestingGlResources(glExecutorService, glObjectsProvider, TEST_TIMEOUT_MS);
-    }
-    if (glExecutorService != null) {
-      glExecutorService.shutdown();
-    }
-    if (releasingException != null) {
-      throw new AssertionError(releasingException);
     }
   }
 
@@ -310,13 +277,7 @@ public class CompositionPlayerPacketConsumerSurfaceViewPixelTest {
     instrumentation.runOnMainSync(
         () -> {
           surfaceView.getHolder().addCallback(callback);
-          DefaultHardwareBufferEffectsPipeline packetProcessor =
-              DefaultHardwareBufferEffectsPipeline.create(context, HardwareBufferJni.INSTANCE);
-          compositionPlayer =
-              new CompositionPlayer.Builder(context)
-                  .setNativeHardwareBufferHelpers(HardwareBufferJni.INSTANCE)
-                  .setHardwareBufferEffectsPipeline(packetProcessor)
-                  .build();
+          compositionPlayer = createCompositionPlayerBuilder(context, mode).build();
           firstFrameRenderedFuture.setFuture(futureWhen(compositionPlayer).rendersFirstFrame());
           compositionPlayer.setVideoSurfaceView(surfaceView);
           compositionPlayer.setComposition(
@@ -378,6 +339,92 @@ public class CompositionPlayerPacketConsumerSurfaceViewPixelTest {
   }
 
   @Test
+  @SdkSuppress(
+      minSdkVersion = 34) // RGBA_1010102 only supported in ImageReader/SurfaceView from API 34.
+  public void compositionPlayer_withPacketConsumer_hdr_backsUpAndRestoresFrameOnLifecycleChange()
+      throws Exception {
+    assumeFalse(mode.equals(DEFAULT_GL_FRAME_PROCESSOR));
+    assumeTrue(isDeviceReady());
+    assumeFormatsSupported(
+        context,
+        testId,
+        /* inputFormat= */ MP4_ASSET_COLOR_TEST_1080P_HLG10.videoFormat,
+        /* outputFormat= */ null);
+    SettableFuture<Void> firstFrameRenderedFuture = SettableFuture.create();
+    ConditionVariable surfaceDestroyed = new ConditionVariable();
+    ConditionVariable surfaceChanged = new ConditionVariable();
+
+    SurfaceHolder.Callback callback =
+        new SurfaceHolder.Callback() {
+          @Override
+          public void surfaceCreated(SurfaceHolder holder) {}
+
+          @Override
+          public void surfaceChanged(SurfaceHolder holder, int format, int width, int height) {
+            surfaceChanged.open();
+          }
+
+          @Override
+          public void surfaceDestroyed(SurfaceHolder holder) {
+            surfaceDestroyed.open();
+          }
+        };
+
+    instrumentation.runOnMainSync(
+        () -> {
+          surfaceView.getHolder().addCallback(callback);
+          compositionPlayer = createCompositionPlayerBuilder(context, mode).build();
+          firstFrameRenderedFuture.setFuture(futureWhen(compositionPlayer).rendersFirstFrame());
+          compositionPlayer.setVideoSurfaceView(surfaceView);
+          compositionPlayer.setComposition(
+              new Composition.Builder(
+                      EditedMediaItemSequence.withVideoFrom(
+                          ImmutableList.of(
+                              new EditedMediaItem.Builder(
+                                      MediaItem.fromUri(MP4_ASSET_COLOR_TEST_1080P_HLG10.uri))
+                                  .setDurationUs(MP4_ASSET_COLOR_TEST_1080P_HLG10.videoDurationUs)
+                                  .build())))
+                  .build());
+          compositionPlayer.prepare();
+          compositionPlayer.setPlayWhenReady(false);
+        });
+
+    firstFrameRenderedFuture.get();
+
+    // Move activity to stopped state (destroys surface, triggers backup).
+    rule.getScenario().moveToState(CREATED);
+
+    // Wait for surface destruction to complete.
+    assertThat(surfaceDestroyed.block(TEST_TIMEOUT_MS)).isTrue();
+
+    // Reset the condition variable to wait for the next recreation.
+    surfaceChanged.close();
+
+    // Move activity back to resumed state (re-creates surface, triggers restore).
+    rule.getScenario().moveToState(RESUMED);
+
+    // Wait for surface re-creation.
+    assertThat(surfaceChanged.block(TEST_TIMEOUT_MS)).isTrue();
+
+    Bitmap bitmap = Bitmap.createBitmap(/* width= */ 1920, /* height= */ 1080, Config.RGBA_1010102);
+    ConditionVariable pixelCopyFinished = new ConditionVariable();
+
+    instrumentation.runOnMainSync(
+        () ->
+            PixelCopy.request(
+                surfaceView,
+                bitmap,
+                result -> {
+                  if (result == PixelCopy.SUCCESS) {
+                    pixelCopyFinished.open();
+                  }
+                },
+                surfaceView.getHandler()));
+    assertThat(pixelCopyFinished.block(TEST_TIMEOUT_MS)).isTrue();
+    assertThat(isBitmapBlackOrEmpty(bitmap)).isFalse();
+  }
+
+  @Test
   public void compositionPlayer_withPacketConsumer_usesMetadataListener() throws Exception {
     SettableFuture<Void> endedFuture = SettableFuture.create();
     Queue<Long> videoTimestamps = new ConcurrentLinkedQueue<>();
@@ -385,12 +432,8 @@ public class CompositionPlayerPacketConsumerSurfaceViewPixelTest {
 
     instrumentation.runOnMainSync(
         () -> {
-          DefaultHardwareBufferEffectsPipeline packetProcessor =
-              DefaultHardwareBufferEffectsPipeline.create(context, HardwareBufferJni.INSTANCE);
           compositionPlayer =
-              new CompositionPlayer.Builder(context)
-                  .setNativeHardwareBufferHelpers(HardwareBufferJni.INSTANCE)
-                  .setHardwareBufferEffectsPipeline(packetProcessor)
+              createCompositionPlayerBuilder(context, mode)
                   .experimentalSetLateThresholdToDropInputUs(C.TIME_UNSET)
                   .build();
           compositionPlayer.setVideoSurfaceView(surfaceView);
@@ -542,8 +585,7 @@ public class CompositionPlayerPacketConsumerSurfaceViewPixelTest {
           new SimpleGlFrameProcessor.Factory(context, HardwareBufferJni.INSTANCE));
     } else if (mode.equals(DEFAULT_GL_FRAME_PROCESSOR)) {
       return builder.setFrameProcessorFactory(
-          new DefaultGlFrameProcessor.Factory(
-              context, glObjectsProvider, HardwareBufferJni.INSTANCE, glExecutorService));
+          glFrameProcessorTestRule.createDefaultGlFrameProcessorFactory(context));
     }
     throw new IllegalArgumentException("Unknown mode: " + mode);
   }
@@ -556,6 +598,19 @@ public class CompositionPlayerPacketConsumerSurfaceViewPixelTest {
     boolean userSetupComplete =
         Settings.Secure.getInt(context.getContentResolver(), "user_setup_complete", 1) == 1;
     return deviceProvisioned && userSetupComplete;
+  }
+
+  private static boolean isBitmapBlackOrEmpty(Bitmap bitmap) {
+    int width = bitmap.getWidth();
+    int height = bitmap.getHeight();
+    for (int x = 0; x < width; x += 10) {
+      for (int y = 0; y < height; y += 10) {
+        if ((bitmap.getPixel(x, y) & 0xFFFFFF) != 0) {
+          return false;
+        }
+      }
+    }
+    return true;
   }
 
   /** An implementation of {@link SurfaceHolder} which is backed by an {@link ImageReader}. */

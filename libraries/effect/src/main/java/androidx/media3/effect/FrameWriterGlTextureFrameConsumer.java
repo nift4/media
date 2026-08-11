@@ -166,10 +166,8 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
   /** Establishes the output format based on the first frame. */
   private Format establishOutputFormat(Format inputFormat) {
     int rotationDegrees = calculateOutputRotationDegrees(inputFormat);
-    int outputWidth =
-        (rotationDegrees == 90 || rotationDegrees == 270) ? inputFormat.height : inputFormat.width;
-    int outputHeight =
-        (rotationDegrees == 90 || rotationDegrees == 270) ? inputFormat.width : inputFormat.height;
+    int outputWidth = rotationDegrees == 90 ? inputFormat.height : inputFormat.width;
+    int outputHeight = rotationDegrees == 90 ? inputFormat.width : inputFormat.height;
     return updateFormat(
         inputFormat,
         outputWidth,
@@ -242,20 +240,16 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
       return 0;
     }
 
-    // If frameWriter doesn't support portrait, try rotating the input by 90 or 270 degrees to swap
-    // to landscape dimensions supported by the encoder.
+    // If frameWriter doesn't support portrait, try rotating the input by 90 degrees to swap to
+    // landscape dimensions supported by the encoder.
     int rotatedWidth = format.height;
     int rotatedHeight = format.width;
     Format formatRotate90 =
-        updateFormat(format, rotatedWidth, rotatedHeight, /* rotationDegrees= */ 90);
+        // Setting rotation degrees to zero because the encoder doesn't rotate the frame and thus
+        // the value is irrelevant. Here we use the swapped dimension to check encoder capability.
+        updateFormat(format, rotatedWidth, rotatedHeight, /* rotationDegrees= */ 0);
     if (frameWriter.getInfo().isSupported(formatRotate90, OUTPUT_USAGE)) {
       return 90;
-    }
-
-    Format formatRotate270 =
-        updateFormat(format, rotatedWidth, rotatedHeight, /* rotationDegrees= */ 270);
-    if (frameWriter.getInfo().isSupported(formatRotate270, OUTPUT_USAGE)) {
-      return 270;
     }
 
     // Fallback if nothing is supported.
@@ -269,5 +263,21 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
         .setHeight(height)
         .setRotationDegrees(rotationDegrees)
         .build();
+  }
+
+  @Override
+  public boolean isOutputFormatSupported(Format format) {
+    if (!frameWriter.getInfo().isSupported(format, OUTPUT_USAGE)) {
+      return false;
+    }
+    try {
+      if (format.colorInfo != null
+          && !GlUtil.isColorTransferSupported(format.colorInfo.colorTransfer)) {
+        return false;
+      }
+    } catch (GlException e) {
+      return false;
+    }
+    return true;
   }
 }

@@ -22,9 +22,9 @@ import androidx.media3.datasource.HttpDataSource
 import androidx.media3.datasource.TransferListener
 import com.google.common.net.HttpHeaders
 import com.google.common.truth.Truth.assertThat
-import com.google.testing.junit.testparameterinjector.KotlinTestParameters.namedTestValues
 import com.google.testing.junit.testparameterinjector.TestParameter
 import com.google.testing.junit.testparameterinjector.TestParameterInjector
+import com.google.testing.junit.testparameterinjector.TestParameterValuesProvider
 import io.ktor.client.HttpClient
 import io.ktor.client.HttpClientConfig
 import io.ktor.client.engine.HttpClientEngineFactory
@@ -44,10 +44,15 @@ import org.junit.runner.RunWith
 
 @RunWith(TestParameterInjector::class)
 class KtorDataSourceTest(
-  @TestParameter
-  private val httpClientEngineFactory: HttpClientEngineFactory<*> =
-    namedTestValues("Android" to Android, "OkHttp" to OkHttp)
+  @TestParameter(valuesProvider = ClientEngineFactoryProvider::class)
+  private val httpClientEngineFactory: HttpClientEngineFactory<*>
 ) {
+
+  private class ClientEngineFactoryProvider : TestParameterValuesProvider() {
+    override fun provideValues(context: Context?): List<*>? {
+      return listOf(value(Android).withName("Android"), value(OkHttp).withName("OkHttp"))
+    }
+  }
 
   @get:Rule val mockWebServer = MockWebServer()
 
@@ -342,7 +347,7 @@ class KtorDataSourceTest(
   @Test
   fun open_doesNotWaitForResponseBody() {
     val testData = "a".repeat(100)
-    val bodyDelayMs = 800L
+    val bodyDelayMs = 2000L
     mockWebServer.enqueue(
       MockResponse()
         .setResponseCode(200)
@@ -354,9 +359,9 @@ class KtorDataSourceTest(
     httpClient =
       HttpClient(httpClientEngineFactory) {
         install(HttpTimeout) {
-          requestTimeoutMillis = 3000
-          connectTimeoutMillis = 3000
-          socketTimeoutMillis = 3000
+          requestTimeoutMillis = 5000
+          connectTimeoutMillis = 5000
+          socketTimeoutMillis = 5000
         }
       }
     dataSource = KtorDataSource.Factory(httpClient).createDataSource()
@@ -367,7 +372,7 @@ class KtorDataSourceTest(
     val openDurationMs = SystemClock.elapsedRealtime() - startTimeMs
 
     // Verify that open() completed without waiting for the delayed response body.
-    assertThat(openDurationMs).isLessThan(400L)
+    assertThat(openDurationMs).isLessThan(1000L)
 
     val buffer = ByteArray(10)
     val bytesRead = dataSource.read(buffer, 0, buffer.size)

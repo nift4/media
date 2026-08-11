@@ -32,7 +32,6 @@ import static com.google.common.util.concurrent.MoreExecutors.directExecutor;
 
 import android.content.Context;
 import android.graphics.Bitmap;
-import android.media.MediaCodec;
 import android.media.MediaFormat;
 import android.os.Handler;
 import android.os.SystemClock;
@@ -45,7 +44,6 @@ import androidx.media3.common.MimeTypes;
 import androidx.media3.common.Timeline;
 import androidx.media3.common.util.ConstantRateTimestampIterator;
 import androidx.media3.common.util.NullableType;
-import androidx.media3.decoder.DecoderInputBuffer;
 import androidx.media3.exoplayer.ExoPlaybackException;
 import androidx.media3.exoplayer.Renderer;
 import androidx.media3.exoplayer.RenderersFactory;
@@ -405,17 +403,6 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
       pendingEffects = editedMediaItem.effects.videoEffects;
       targetFrameRateHelper.onStreamChanged(editedMediaItem);
       super.onStreamChanged(formats, startPositionUs, offsetUs, mediaPeriodId);
-    }
-
-    @Override
-    protected void onQueueInputBuffer(DecoderInputBuffer buffer) throws ExoPlaybackException {
-      targetFrameRateHelper.onQueueInputBuffer(buffer, getCodecInputFormat());
-      super.onQueueInputBuffer(buffer);
-    }
-
-    @Override
-    protected int getCodecBufferFlags(DecoderInputBuffer buffer) {
-      return super.getCodecBufferFlags(buffer) | targetFrameRateHelper.getCodecBufferFlags(buffer);
     }
 
     @Override
@@ -807,7 +794,8 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
     @Nullable private VideoFrameMetadataListener frameMetadataListener;
     private long streamStartPositionUs;
     private long offsetToCompositionTimeUs;
-    private boolean hasOutputSurface = false;
+    private boolean hasOutputSurface;
+    private boolean canOutput;
 
     private HardwareBufferVideoRenderer(
         Context context,
@@ -837,6 +825,9 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
     @Override
     protected void onEnabled(boolean joining, boolean mayRenderStartOfStream)
         throws ExoPlaybackException {
+      if (mayRenderStartOfStream) {
+        canOutput = true;
+      }
       if (hardwareBufferFrameReader == null) {
         // Initialize hardwareBufferFrameReader on the first onEnabled() call.
         hardwareBufferFrameReader = checkNotNull(hardwareBufferFrameReaderSupplier.get());
@@ -846,7 +837,14 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
     }
 
     @Override
+    protected void onStarted() {
+      canOutput = true;
+      super.onStarted();
+    }
+
+    @Override
     protected void onDisabled() {
+      canOutput = false;
       super.onDisabled();
       checkNotNull(hardwareBufferFrameReader)
           .removeRendererWakeupListener(/* rendererWakeupListener= */ this);
@@ -892,17 +890,6 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
     }
 
     @Override
-    protected void onQueueInputBuffer(DecoderInputBuffer buffer) throws ExoPlaybackException {
-      targetFrameRateHelper.onQueueInputBuffer(buffer, getCodecInputFormat());
-      super.onQueueInputBuffer(buffer);
-    }
-
-    @Override
-    protected int getCodecBufferFlags(DecoderInputBuffer buffer) {
-      return super.getCodecBufferFlags(buffer) | targetFrameRateHelper.getCodecBufferFlags(buffer);
-    }
-
-    @Override
     protected boolean processOutputBuffer(
         long positionUs,
         long elapsedRealtimeUs,
@@ -925,8 +912,9 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
       }
       // When prewarming is enabled this method will be called when the renderer is enabled, which
       // is well before item should be displayed. Frames should not be rendered until a Surface is
-      // set on this renderer.
-      if (!hasOutputSurface) {
+      // set on this renderer and this renderer is either started, or enabled with
+      // mayRenderStartOfStream.
+      if (!hasOutputSurface || !canOutput) {
         return false;
       }
       nextFormat = format;
@@ -1044,19 +1032,22 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
   /**
    * An {@link ImageRenderer} that outputs decoded images to a {@link HardwareBufferFrameReader}.
    */
-  private static final class HardwareBufferImageRenderer extends ImageRenderer {
+  private static final class HardwareBufferImageRenderer extends ImageRenderer
+      implements RendererWakeupListener {
 
     private final CompositionRendererListener compositionRendererListener;
     private final Supplier<@NullableType HardwareBufferFrameReader>
         hardwareBufferFrameReaderSupplier;
     private @MonotonicNonNull HardwareBufferFrameReader hardwareBufferFrameReader;
     private @MonotonicNonNull ConstantRateTimestampIterator timestampIterator;
+    private @MonotonicNonNull Format outputFormat;
     private MediaSource.@MonotonicNonNull MediaPeriodId mediaPeriodId;
     private long streamStartPositionUs;
     private long offsetToCompositionTimeUs;
-    @Nullable private ImageMetadataListener imageMetadataListener;
-    private @MonotonicNonNull Format outputFormat;
     private long streamOffsetUs;
+
+    @Nullable private ImageMetadataListener imageMetadataListener;
+    @Nullable private WakeupListener wakeupListener;
 
     HardwareBufferImageRenderer(
         ImageDecoder.Factory imageDecoderFactory,
@@ -1071,11 +1062,17 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
     @Override
     public void handleMessage(@Renderer.MessageType int messageType, @Nullable Object message)
         throws ExoPlaybackException {
-      if (messageType == Renderer.MSG_SET_IMAGE_METADATA_LISTENER) {
-        imageMetadataListener = (ImageMetadataListener) message;
-        return;
+      switch (messageType) {
+        case Renderer.MSG_SET_WAKEUP_LISTENER:
+          this.wakeupListener = (WakeupListener) checkNotNull(message);
+          break;
+        case Renderer.MSG_SET_IMAGE_METADATA_LISTENER:
+          imageMetadataListener = (ImageMetadataListener) message;
+          break;
+        default:
+          super.handleMessage(messageType, message);
+          break;
       }
-      super.handleMessage(messageType, message);
     }
 
     // ImageRenderer methods
@@ -1086,6 +1083,21 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
       if (hardwareBufferFrameReader == null) {
         // Initialize hardwareBufferFrameReader on the first onEnabled() call.
         this.hardwareBufferFrameReader = checkNotNull(hardwareBufferFrameReaderSupplier.get());
+      }
+      hardwareBufferFrameReader.addRendererWakeupListener(/* rendererWakeupListener= */ this);
+    }
+
+    @Override
+    protected void onDisabled() {
+      super.onDisabled();
+      checkNotNull(hardwareBufferFrameReader)
+          .removeRendererWakeupListener(/* rendererWakeupListener= */ this);
+    }
+
+    @Override
+    public void onWakeup() {
+      if (wakeupListener != null) {
+        wakeupListener.onWakeup();
       }
     }
 
@@ -1187,22 +1199,16 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
   /** Helper class that encapsulates frame dropping logic for video renderers. */
   private static final class TargetFrameRateHelper {
 
-    private long nextDecoderInputExpectedTimestampUs;
     private long nextDecoderOutputExpectedTimestampUs;
     private long expectedTimestampDeltaUs;
-    private long decodeOnlyBufferTimestampUs;
 
     private TargetFrameRateHelper() {
-      nextDecoderInputExpectedTimestampUs = C.TIME_UNSET;
       nextDecoderOutputExpectedTimestampUs = C.TIME_UNSET;
       expectedTimestampDeltaUs = C.TIME_UNSET;
-      decodeOnlyBufferTimestampUs = C.TIME_UNSET;
     }
 
     private void onPositionReset() {
-      nextDecoderInputExpectedTimestampUs = C.TIME_UNSET;
       nextDecoderOutputExpectedTimestampUs = C.TIME_UNSET;
-      decodeOnlyBufferTimestampUs = C.TIME_UNSET;
     }
 
     private void onStreamChanged(EditedMediaItem editedMediaItem) {
@@ -1210,31 +1216,6 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
           editedMediaItem.frameRate == C.RATE_UNSET_INT
               ? C.TIME_UNSET
               : C.MICROS_PER_SECOND / editedMediaItem.frameRate;
-    }
-
-    private void onQueueInputBuffer(DecoderInputBuffer buffer, @Nullable Format codecInputFormat) {
-      if (SDK_INT >= 34 && shouldMaintainTargetFrameRate()) {
-        if (shouldDropDecoderInputFrameToMaintainTargetFrameRate(
-                buffer.timeUs, nextDecoderInputExpectedTimestampUs, codecInputFormat)
-            && !buffer.isEndOfStream()
-            && !buffer.isLastSample()) {
-          // Mark this buffer as DECODE_ONLY. The frame will be dropped by the renderer. We track
-          // the timestamp to later add the DECODE_ONLY flag in getCodecBufferFlags.
-          decodeOnlyBufferTimestampUs = buffer.timeUs;
-        } else {
-          nextDecoderInputExpectedTimestampUs =
-              (nextDecoderInputExpectedTimestampUs == C.TIME_UNSET)
-                  ? (buffer.timeUs + expectedTimestampDeltaUs)
-                  : (nextDecoderInputExpectedTimestampUs + expectedTimestampDeltaUs);
-        }
-      }
-    }
-
-    private int getCodecBufferFlags(DecoderInputBuffer buffer) {
-      if (SDK_INT >= 34 && decodeOnlyBufferTimestampUs == buffer.timeUs) {
-        return MediaCodec.BUFFER_FLAG_DECODE_ONLY;
-      }
-      return 0;
     }
 
     private boolean shouldDropOutputFrame(long presentationTimeUs) {
@@ -1253,17 +1234,6 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
 
     private boolean shouldMaintainTargetFrameRate() {
       return expectedTimestampDeltaUs != C.TIME_UNSET;
-    }
-
-    private boolean shouldDropDecoderInputFrameToMaintainTargetFrameRate(
-        long presentationTimeUs,
-        long nextExpectedPresentationTimeUs,
-        @Nullable Format codecInputFormat) {
-      checkNotNull(codecInputFormat);
-      boolean mediaItemContainsBFrames = codecInputFormat.maxNumReorderSamples > 0;
-      return !mediaItemContainsBFrames
-          && shouldDropFrameToMaintainTargetFrameRate(
-              presentationTimeUs, nextExpectedPresentationTimeUs);
     }
 
     private boolean shouldDropFrameToMaintainTargetFrameRate(

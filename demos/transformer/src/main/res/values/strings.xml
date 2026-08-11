@@ -38,13 +38,15 @@
   <string name="trim" translatable="false">Trim</string>
   <string name="hdr_mode" translatable="false">HDR mode</string>
   <string name="enable_trim_optimization" translatable="false">Enable trim optimization</string>
-  <string name="enable_packet_processor" translatable="false">Enable Packet Processor</string>
+  <string name="enable_frame_processor" translatable="false">Enable FrameProcessor</string>
   <string name="enable_mp4_edit_list_trimming" translatable="false">Enable MP4 edit list trimming</string>
   <string name="enable_codecdb_lite" translatable="false">Enable CodecDB Lite</string>
   <string name="error_select_track_type" translatable="false">At least one track must be enabled to start export.</string>
+  <string name="api_28_required_frame_processor" translatable="false">API 28+ required for using FrameProcessor</string>
   <string name="select_audio_effects" translatable="false">Add audio effects</string>
   <string name="select_video_effects" translatable="false">Add video effects</string>
   <string name="periodic_vignette_options" translatable="false">Periodic vignette options</string>
+  <string name="frame_aggregation_fps" translatable="false">Frame Aggregation FPS</string>
   <string name="export" translatable="false">Export</string>
   <string name="debug_preview" translatable="false">Debug preview:</string>
   <string name="pause" translatable="false">Pause</string>
@@ -93,4 +95,7 @@
   <string name="single_sequence_items" translatable="false">Single sequence items:</string>
   <string name="edit">Edit</string>
   <string name="average_fps" translatable="false">Average FPS: %1$.2f</string>
+  <string name="error_invalid_frame_aggregation_fps_value" translatable="false">Frame aggregation FPS must be positive</string>
+  <string name="error_invalid_frame_aggregation_fps_format" translatable="false">Invalid frame aggregation FPS format</string>
+  <string name="frame_aggregation_fps_hint" translatable="false">e.g. 23.976</string>
 </resources>

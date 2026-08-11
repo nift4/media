@@ -163,6 +163,7 @@ import androidx.media3.exoplayer.source.ShuffleOrder;
 import androidx.media3.exoplayer.source.SinglePeriodTimeline;
 import androidx.media3.exoplayer.source.TrackGroupArray;
 import androidx.media3.exoplayer.source.WrappingMediaSource;
+import androidx.media3.exoplayer.source.ads.AdTimeline;
 import androidx.media3.exoplayer.text.TextOutput;
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector;
 import androidx.media3.exoplayer.trackselection.ExoTrackSelection;
@@ -3775,6 +3776,66 @@ public final class ExoPlayerTest {
     assertThat(mediaSource.getCreatedMediaPeriods().get(1).nextAdGroupIndex).isEqualTo(0);
     assertThat(mediaSource.getCreatedMediaPeriods().get(2).adGroupIndex).isEqualTo(0);
     assertThat(mediaSource.getCreatedMediaPeriods().get(3).adGroupIndex).isEqualTo(C.INDEX_UNSET);
+  }
+
+  @Test
+  public void timelineUpdateWithPostroll_transitionToMultiPeriod_doesNotGetStuck()
+      throws Exception {
+    Object windowId = new Object();
+    AdPlaybackState adPlaybackState =
+        new AdPlaybackState(
+                /* adsId= */ new Object(), /* adGroupTimesUs...= */ C.TIME_END_OF_SOURCE)
+            .withAdCount(/* adGroupIndex= */ 0, /* adCount= */ 1)
+            .withAvailableAdMediaItem(
+                /* adGroupIndex= */ 0,
+                /* adIndexInAdGroup= */ 0,
+                MediaItem.fromUri("https://google.com/ad"))
+            .withAdDurationsUs(
+                /* adGroupIndex= */ 0, /* adDurationsUs...= */ 5 * C.MICROS_PER_SECOND)
+            .withAdResumePositionUs(/* adResumePositionUs= */ 0);
+
+    Timeline contentTimeline1 =
+        new FakeTimeline(
+            new FakeTimeline.TimelineWindowDefinition.Builder()
+                .setPeriodCount(1)
+                .setUid(windowId)
+                .setSeekable(true)
+                .setDurationUs(C.TIME_UNSET)
+                .setPlaceholder(true)
+                .build());
+    Timeline timeline1 = new AdTimeline(contentTimeline1, adPlaybackState);
+
+    Timeline contentTimeline2 =
+        new FakeTimeline(
+            new FakeTimeline.TimelineWindowDefinition.Builder()
+                .setPeriodCount(2)
+                .setUid(windowId)
+                .setSeekable(true)
+                .setDurationUs(10 * C.MICROS_PER_SECOND)
+                .build());
+    Timeline timeline2 = new AdTimeline(contentTimeline2, adPlaybackState);
+
+    FakeMediaSource mediaSource = new FakeMediaSource(timeline1, ExoPlayerTestRunner.VIDEO_FORMAT);
+    ActionSchedule actionSchedule =
+        new ActionSchedule.Builder(TAG)
+            .pause()
+            .waitForPlaybackState(Player.STATE_READY)
+            .executeRunnable(() -> mediaSource.setNewSourceInfo(timeline2))
+            .waitForTimelineChanged(
+                timeline2, /* expectedReason= */ Player.TIMELINE_CHANGE_REASON_SOURCE_UPDATE)
+            .play()
+            .build();
+
+    ExoPlayerTestRunner testRunner =
+        parameterizeExoPlayerTestRunnerBuilder(
+                new ExoPlayerTestRunner.Builder(context)
+                    .setMediaSources(mediaSource)
+                    .setActionSchedule(actionSchedule))
+            .build()
+            .start();
+
+    testRunner.blockUntilEnded(TIMEOUT_MS);
+    testRunner.assertPlayedPeriodIndices(0, 1);
   }
 
   @Test
@@ -10110,6 +10171,352 @@ public final class ExoPlayerTest {
     assertThat(renderCounter.get()).isNotEqualTo(0);
     // Verify is triggered less often than a regular 10ms update interval
     assertThat(renderCounter.get()).isLessThan(40);
+  }
+
+  @Test
+  public void getCurrentPosition_withDynamicSchedulingEnabled_calculatesUsingEstimatedPosition()
+      throws Exception {
+    AtomicInteger renderCounter = new AtomicInteger();
+    ForwardingDurationToProgressRenderer fakeRenderer =
+        new ForwardingDurationToProgressRenderer(
+            new FakeRenderer(C.TRACK_TYPE_AUDIO),
+            /* durationToProgressUs= */ 500_000L,
+            renderCounter);
+    FakeClock clock = new FakeClock(/* isAutoAdvancing= */ true);
+    ExoPlayer player =
+        new TestExoPlayerBuilder(context)
+            .setClock(clock)
+            .setDynamicSchedulingEnabled(true)
+            .setRenderers(fakeRenderer)
+            .build();
+    player.setMediaSource(
+        new FakeMediaSource(new FakeTimeline(), ExoPlayerTestRunner.AUDIO_FORMAT));
+    player.prepare();
+    player.play();
+    advance(player).untilState(Player.STATE_READY);
+
+    long positionAtT0 = player.getCurrentPosition();
+    clock.advanceTime(100);
+    long positionAtT1 = player.getCurrentPosition();
+
+    assertThat(positionAtT1).isEqualTo(positionAtT0 + 100);
+
+    player.release();
+  }
+
+  @Test
+  public void
+      getCurrentPosition_withDynamicSchedulingEnabledAndPaused_calculatedPositionIsNotExtrapolated()
+          throws Exception {
+    AtomicInteger renderCounter = new AtomicInteger();
+    ForwardingDurationToProgressRenderer fakeRenderer =
+        new ForwardingDurationToProgressRenderer(
+            new FakeRenderer(C.TRACK_TYPE_AUDIO),
+            /* durationToProgressUs= */ 500_000L,
+            renderCounter);
+    FakeClock clock = new FakeClock(/* isAutoAdvancing= */ true);
+    ExoPlayer player =
+        new TestExoPlayerBuilder(context)
+            .setClock(clock)
+            .setDynamicSchedulingEnabled(true)
+            .setRenderers(fakeRenderer)
+            .build();
+    player.setMediaSource(
+        new FakeMediaSource(new FakeTimeline(), ExoPlayerTestRunner.AUDIO_FORMAT));
+    player.prepare();
+    player.play();
+    advance(player).untilState(Player.STATE_READY);
+
+    long positionAtT0 = player.getCurrentPosition();
+    player.pause();
+    clock.advanceTime(100);
+    long positionAtT1 = player.getCurrentPosition();
+
+    assertThat(positionAtT1).isEqualTo(positionAtT0);
+
+    player.release();
+  }
+
+  @Test
+  public void
+      getCurrentPosition_withDynamicSchedulingEnabledAndPlayThenPaused_returnsMaskedEstimatedPosition()
+          throws Exception {
+    AtomicInteger renderCounter = new AtomicInteger();
+    ForwardingDurationToProgressRenderer fakeRenderer =
+        new ForwardingDurationToProgressRenderer(
+            new FakeRenderer(C.TRACK_TYPE_AUDIO),
+            /* durationToProgressUs= */ 500_000L,
+            renderCounter);
+    FakeClock clock = new FakeClock(/* isAutoAdvancing= */ true);
+    ExoPlayer player =
+        new TestExoPlayerBuilder(context)
+            .setClock(clock)
+            .setDynamicSchedulingEnabled(true)
+            .setRenderers(fakeRenderer)
+            .build();
+    player.setMediaSource(
+        new FakeMediaSource(new FakeTimeline(), ExoPlayerTestRunner.AUDIO_FORMAT));
+    player.prepare();
+    player.play();
+    advance(player).untilState(Player.STATE_READY);
+
+    long positionAtT0 = player.getCurrentPosition();
+    clock.advanceTime(100);
+    player.pause();
+    long positionAtT1Masked = player.getCurrentPosition();
+    advance(player).untilPendingCommandsAreFullyHandled();
+    long positionAtT1Synced = player.getCurrentPosition();
+
+    assertThat(positionAtT1Masked).isEqualTo(positionAtT0 + 100);
+    assertThat(positionAtT1Synced).isEqualTo(positionAtT0 + 100);
+
+    player.release();
+  }
+
+  @Test
+  public void
+      getCurrentPosition_withDynamicSchedulingEnabledAndStopped_returnsMaskedEstimatedPosition()
+          throws Exception {
+    AtomicInteger renderCounter = new AtomicInteger();
+    ForwardingDurationToProgressRenderer fakeRenderer =
+        new ForwardingDurationToProgressRenderer(
+            new FakeRenderer(C.TRACK_TYPE_AUDIO),
+            /* durationToProgressUs= */ 500_000L,
+            renderCounter);
+    FakeClock clock = new FakeClock(/* isAutoAdvancing= */ true);
+    ExoPlayer player =
+        new TestExoPlayerBuilder(context)
+            .setClock(clock)
+            .setDynamicSchedulingEnabled(true)
+            .setRenderers(fakeRenderer)
+            .build();
+    player.setMediaSource(
+        new FakeMediaSource(new FakeTimeline(), ExoPlayerTestRunner.AUDIO_FORMAT));
+    player.prepare();
+    player.play();
+    advance(player).untilState(Player.STATE_READY);
+
+    long positionAtT0 = player.getCurrentPosition();
+    clock.advanceTime(100);
+    player.stop();
+    long positionAtT1Masked = player.getCurrentPosition();
+    advance(player).untilPendingCommandsAreFullyHandled();
+    long positionAtT1Synced = player.getCurrentPosition();
+
+    assertThat(positionAtT1Masked).isEqualTo(positionAtT0 + 100);
+    assertThat(positionAtT1Synced).isEqualTo(positionAtT0 + 100);
+
+    player.release();
+  }
+
+  @Test
+  public void
+      getCurrentPosition_withDynamicSchedulingEnabledAndSpeedChangedBeforeClockAdvance_calculatesCorrectPositionEstimate()
+          throws Exception {
+    AtomicInteger renderCounter = new AtomicInteger();
+    ForwardingDurationToProgressRenderer fakeRenderer =
+        new ForwardingDurationToProgressRenderer(
+            new FakeRenderer(C.TRACK_TYPE_AUDIO),
+            /* durationToProgressUs= */ 500_000L,
+            renderCounter);
+    FakeClock clock = new FakeClock(/* isAutoAdvancing= */ true);
+    ExoPlayer player =
+        new TestExoPlayerBuilder(context)
+            .setClock(clock)
+            .setDynamicSchedulingEnabled(true)
+            .setRenderers(fakeRenderer)
+            .build();
+    player.setMediaSource(
+        new FakeMediaSource(new FakeTimeline(), ExoPlayerTestRunner.AUDIO_FORMAT));
+    player.prepare();
+    player.play();
+    advance(player).untilState(Player.STATE_READY);
+
+    player.setPlaybackParameters(new PlaybackParameters(2.0f));
+    advance(player).untilPendingCommandsAreFullyHandled();
+    long positionAtT0 = player.getCurrentPosition();
+    clock.advanceTime(100);
+    long positionAtT1 = player.getCurrentPosition();
+
+    assertThat(positionAtT1).isEqualTo(positionAtT0 + 200);
+
+    player.release();
+  }
+
+  @Test
+  public void
+      getCurrentPosition_withDynamicSchedulingEnabledAndSpeedChangedAfterClockAdvance_calculatesCorrectPositionEstimate()
+          throws Exception {
+    AtomicInteger renderCounter = new AtomicInteger();
+    ForwardingDurationToProgressRenderer fakeRenderer =
+        new ForwardingDurationToProgressRenderer(
+            new FakeRenderer(C.TRACK_TYPE_AUDIO),
+            /* durationToProgressUs= */ 500_000L,
+            renderCounter);
+    FakeClock clock = new FakeClock(/* isAutoAdvancing= */ true);
+    ExoPlayer player =
+        new TestExoPlayerBuilder(context)
+            .setClock(clock)
+            .setDynamicSchedulingEnabled(true)
+            .setRenderers(fakeRenderer)
+            .build();
+    player.setMediaSource(
+        new FakeMediaSource(new FakeTimeline(), ExoPlayerTestRunner.AUDIO_FORMAT));
+    player.prepare();
+    player.play();
+    advance(player).untilState(Player.STATE_READY);
+
+    long positionAtT0 = player.getCurrentPosition();
+    clock.advanceTime(100);
+    player.setPlaybackParameters(new PlaybackParameters(2.0f));
+    long positionAtT1Masked = player.getCurrentPosition();
+    advance(player).untilPendingCommandsAreFullyHandled();
+    long positionAtT1Synced = player.getCurrentPosition();
+
+    assertThat(positionAtT1Masked).isEqualTo(positionAtT0 + 100);
+    assertThat(positionAtT1Synced).isEqualTo(positionAtT0 + 100);
+
+    player.release();
+  }
+
+  @Test
+  public void getCurrentPosition_withDynamicSchedulingEnabled_enforcesMonotonicPositionTracking()
+      throws Exception {
+    AtomicInteger renderCounter = new AtomicInteger();
+    AtomicLong rendererPositionUs = new AtomicLong(0);
+    ForwardingDurationToProgressRenderer fakeRenderer =
+        new ForwardingDurationToProgressRenderer(
+            new FakeMediaClockRenderer(C.TRACK_TYPE_AUDIO) {
+              @Override
+              public long getPositionUs() {
+                return rendererPositionUs.get();
+              }
+
+              @Override
+              public void setPlaybackParameters(PlaybackParameters playbackParameters) {}
+
+              @Override
+              public PlaybackParameters getPlaybackParameters() {
+                return PlaybackParameters.DEFAULT;
+              }
+            },
+            /* durationToProgressUs= */ 500_000L, // 500 ms sleep interval
+            renderCounter);
+    FakeClock clock = new FakeClock(/* isAutoAdvancing= */ true);
+    ExoPlayer player =
+        new TestExoPlayerBuilder(context)
+            .setClock(clock)
+            .setDynamicSchedulingEnabled(true)
+            .setRenderers(fakeRenderer)
+            .build();
+    player.setMediaSource(
+        new FakeMediaSource(new FakeTimeline(), ExoPlayerTestRunner.AUDIO_FORMAT));
+    player.prepare();
+    player.play();
+    advance(player).untilState(Player.STATE_READY);
+    long initialPosition = player.getCurrentPosition();
+    // Set renderer position 10ms ahead to guarantee using DefaultMediaClock.
+    rendererPositionUs.set(Util.msToUs(initialPosition + 10));
+    clock.advanceTime(500);
+    advance(player).untilPendingCommandsAreFullyHandled();
+
+    long positionAtT0 = player.getCurrentPosition();
+    clock.advanceTime(100);
+    long positionAtT1 = player.getCurrentPosition();
+    assertThat(positionAtT1).isEqualTo(positionAtT0 + 100);
+
+    // Advance the hardware renderer by only 50 ms to simulate slower progress slower than realtime.
+    rendererPositionUs.addAndGet(Util.msToUs(50));
+    clock.advanceTime(400);
+    advance(player).untilPendingCommandsAreFullyHandled();
+
+    // Verify the monotonic clamp prevents the position from dropping to T0 + 50.
+    long positionAtT2 = player.getCurrentPosition();
+    assertThat(positionAtT2).isEqualTo(positionAtT1);
+
+    // Verify seeking resets the monotonic clamp.
+    player.seekTo(0);
+    long positionAfterSeek = player.getCurrentPosition();
+    assertThat(positionAfterSeek).isEqualTo(0);
+    assertThat(positionAfterSeek).isLessThan(positionAtT1);
+
+    player.release();
+  }
+
+  @Test
+  public void
+      getCurrentPosition_withDynamicSchedulingEnabled_playAfterPauseDoesNotExtrapolateBeforeInternalThreadCatchesUp()
+          throws Exception {
+    AtomicInteger renderCounter = new AtomicInteger();
+    ForwardingDurationToProgressRenderer fakeRenderer =
+        new ForwardingDurationToProgressRenderer(
+            new FakeRenderer(C.TRACK_TYPE_AUDIO),
+            /* durationToProgressUs= */ 500_000L,
+            renderCounter);
+    FakeClock clock = new FakeClock(/* isAutoAdvancing= */ true);
+    ExoPlayer player =
+        new TestExoPlayerBuilder(context)
+            .setClock(clock)
+            .setDynamicSchedulingEnabled(true)
+            .setRenderers(fakeRenderer)
+            .build();
+    player.setMediaSource(
+        new FakeMediaSource(new FakeTimeline(), ExoPlayerTestRunner.AUDIO_FORMAT));
+
+    player.prepare();
+    advance(player).untilState(Player.STATE_READY);
+    long positionAtT0 = player.getCurrentPosition();
+    player.play();
+    // Simulates the UI thread advancing time (e.g., during layout) before the background thread
+    // processes the play command.
+    clock.advanceTime(100);
+    long positionAtT1 = player.getCurrentPosition();
+
+    assertThat(positionAtT1).isEqualTo(positionAtT0);
+
+    player.release();
+  }
+
+  @Test
+  public void play_backwardSeekWithDynamicScheduling_reportsCorrectTargetInDiscontinuityCallback()
+      throws Exception {
+    AtomicInteger renderCounter = new AtomicInteger();
+    AtomicLong reportedNewPositionMs = new AtomicLong(C.TIME_UNSET);
+    ForwardingDurationToProgressRenderer fakeRenderer =
+        new ForwardingDurationToProgressRenderer(
+            new FakeRenderer(C.TRACK_TYPE_AUDIO),
+            /* durationToProgressUs= */ 500_000L,
+            renderCounter);
+    FakeClock clock = new FakeClock(/* isAutoAdvancing= */ true);
+    ExoPlayer player =
+        new TestExoPlayerBuilder(context)
+            .setClock(clock)
+            .setDynamicSchedulingEnabled(true)
+            .setRenderers(fakeRenderer)
+            .build();
+    player.setMediaSource(
+        new FakeMediaSource(new FakeTimeline(), ExoPlayerTestRunner.AUDIO_FORMAT));
+    player.prepare();
+    player.play();
+    advance(player).untilState(Player.STATE_READY);
+    clock.advanceTime(100);
+    assertThat(player.getCurrentPosition()).isEqualTo(100);
+    player.addListener(
+        new Player.Listener() {
+          @Override
+          public void onPositionDiscontinuity(
+              PositionInfo oldPosition, PositionInfo newPosition, int reason) {
+            if (reason == Player.DISCONTINUITY_REASON_SEEK) {
+              reportedNewPositionMs.set(newPosition.positionMs);
+            }
+          }
+        });
+
+    player.seekTo(20);
+
+    assertThat(reportedNewPositionMs.get()).isEqualTo(20);
+
+    player.release();
   }
 
   @Test

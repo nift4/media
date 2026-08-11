@@ -104,7 +104,8 @@ public final class ConfigurationActivity extends AppCompatActivity {
   public static final String TEXT_OVERLAY_TEXT = "text_overlay_text";
   public static final String TEXT_OVERLAY_TEXT_COLOR = "text_overlay_text_color";
   public static final String TEXT_OVERLAY_ALPHA = "text_overlay_alpha";
-  public static final String ENABLE_PACKET_PROCESSOR = "enable_packet_processor";
+  public static final String ENABLE_FRAME_PROCESSOR = "enable_frame_processor";
+  public static final String FRAME_AGGREGATION_FPS = "frame_aggregation_fps";
 
   // Video effect selections.
   public static final int DIZZY_CROP_INDEX = 0;
@@ -178,6 +179,7 @@ public final class ConfigurationActivity extends AppCompatActivity {
   private Spinner resolutionHeightSpinner;
   private Spinner scaleSpinner;
   private Spinner rotateSpinner;
+  private EditText frameAggregationFpsEditText;
   private CheckBox trimCheckBox;
   private CheckBox enableFallbackCheckBox;
   private CheckBox enableAnalyzerModeCheckBox;
@@ -187,7 +189,7 @@ public final class ConfigurationActivity extends AppCompatActivity {
   private CheckBox produceFragmentedMp4;
   private Spinner hdrModeSpinner;
   private CheckBox enableTrimOptimization;
-  private CheckBox enablePacketProcessorCheckBox;
+  private CheckBox enableFrameProcessorCheckBox;
   private CheckBox enableMp4EditListTrimming;
   private CheckBox enableCodecDbLite;
   private Button selectAudioEffectsButton;
@@ -303,6 +305,8 @@ public final class ConfigurationActivity extends AppCompatActivity {
     rotateSpinner.setAdapter(rotateAdapter);
     rotateAdapter.addAll(SAME_AS_INPUT_OPTION, "0", "10", "45", "60", "90", "180");
 
+    frameAggregationFpsEditText = findViewById(R.id.frame_aggregation_fps_edit_text);
+
     trimCheckBox = findViewById(R.id.trim_checkbox);
     trimCheckBox.setOnCheckedChangeListener((view, isChecked) -> selectTrimBounds(isChecked));
     trimStartMs = C.TIME_UNSET;
@@ -326,7 +330,15 @@ public final class ConfigurationActivity extends AppCompatActivity {
             enableMp4EditListTrimming.setChecked(false);
           }
         });
-    enablePacketProcessorCheckBox = findViewById(R.id.enable_packet_processor);
+    enableFrameProcessorCheckBox = findViewById(R.id.enable_frame_processor);
+    View frameAggregationFpsRow = findViewById(R.id.frame_aggregation_fps_row);
+    enableFrameProcessorCheckBox.setOnCheckedChangeListener(
+        (buttonView, isChecked) ->
+            frameAggregationFpsRow.setVisibility(isChecked ? View.VISIBLE : View.GONE));
+    if (SDK_INT < 28) {
+      enableFrameProcessorCheckBox.setEnabled(false);
+      findViewById(R.id.enable_frame_processor_hint).setVisibility(View.VISIBLE);
+    }
     enableMp4EditListTrimming.setOnCheckedChangeListener(
         (buttonView, isChecked) -> {
           if (isChecked) {
@@ -432,7 +444,7 @@ public final class ConfigurationActivity extends AppCompatActivity {
     bundle.putBoolean(ABORT_SLOW_EXPORT, abortSlowExportCheckBox.isChecked());
     bundle.putBoolean(PRODUCE_FRAGMENTED_MP4, produceFragmentedMp4.isChecked());
     bundle.putBoolean(ENABLE_TRIM_OPTIMIZATION, enableTrimOptimization.isChecked());
-    bundle.putBoolean(ENABLE_PACKET_PROCESSOR, enablePacketProcessorCheckBox.isChecked());
+    bundle.putBoolean(ENABLE_FRAME_PROCESSOR, enableFrameProcessorCheckBox.isChecked());
     bundle.putBoolean(ENABLE_MP4_EDIT_LIST_TRIMMING, enableMp4EditListTrimming.isChecked());
     bundle.putBoolean(ENABLE_CODECDB_LITE, enableCodecDbLite.isChecked());
     String selectedHdrMode = String.valueOf(hdrModeSpinner.getSelectedItem());
@@ -456,6 +468,31 @@ public final class ConfigurationActivity extends AppCompatActivity {
     bundle.putString(TEXT_OVERLAY_TEXT, textOverlayText);
     bundle.putInt(TEXT_OVERLAY_TEXT_COLOR, textOverlayTextColor);
     bundle.putFloat(TEXT_OVERLAY_ALPHA, textOverlayAlpha);
+    if (enableFrameProcessorCheckBox.isChecked()) {
+      String frameAggregationFps = frameAggregationFpsEditText.getText().toString().trim();
+      if (!frameAggregationFps.isEmpty()) {
+        try {
+          float fps = Float.parseFloat(frameAggregationFps);
+          if (Math.round(fps * 1000f) > 0) {
+            bundle.putFloat(FRAME_AGGREGATION_FPS, fps);
+          } else {
+            Toast.makeText(
+                    getApplicationContext(),
+                    R.string.error_invalid_frame_aggregation_fps_value,
+                    Toast.LENGTH_SHORT)
+                .show();
+            return;
+          }
+        } catch (NumberFormatException e) {
+          Toast.makeText(
+                  getApplicationContext(),
+                  R.string.error_invalid_frame_aggregation_fps_format,
+                  Toast.LENGTH_SHORT)
+              .show();
+          return;
+        }
+      }
+    }
     transformerIntent.putExtras(bundle);
 
     @Nullable Uri intentUri;
@@ -785,5 +822,7 @@ public final class ConfigurationActivity extends AppCompatActivity {
     findViewById(R.id.scale).setEnabled(isVideoEnabled);
     findViewById(R.id.rotate).setEnabled(isVideoEnabled);
     findViewById(R.id.hdr_mode).setEnabled(isVideoEnabled);
+    findViewById(R.id.frame_aggregation_fps_text_view).setEnabled(isVideoEnabled);
+    frameAggregationFpsEditText.setEnabled(isVideoEnabled);
   }
 }

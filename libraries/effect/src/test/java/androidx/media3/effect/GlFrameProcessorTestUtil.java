@@ -37,6 +37,7 @@ import androidx.media3.common.video.FrameProcessor;
 import androidx.media3.common.video.FrameWriter;
 import androidx.media3.common.video.HardwareBufferFrame;
 import androidx.media3.common.video.SyncFenceWrapper;
+import androidx.media3.effect.GlTextureFrameCompositor.CompositorGlProgram;
 import com.google.common.collect.ImmutableMap;
 import java.util.ArrayList;
 import java.util.List;
@@ -88,6 +89,7 @@ public final class GlFrameProcessorTestUtil {
     public volatile boolean shouldAcceptIncomingFrames;
     public volatile int framesReceived;
     public volatile boolean signalEndOfStreamCalled;
+    public boolean forceUnsupportedFormat;
     @Nullable public Runnable wakeupListener;
     @Nullable public Executor listenerExecutor;
     @Nullable public GlTextureFrame lastReceivedFrame;
@@ -99,6 +101,11 @@ public final class GlFrameProcessorTestUtil {
     public FakeGlTextureFrameConsumer(@Nullable FrameWriter frameWriter) {
       this.frameWriter = frameWriter;
       shouldAcceptIncomingFrames = true;
+    }
+
+    @Override
+    public boolean isOutputFormatSupported(Format format) {
+      return !forceUnsupportedFormat;
     }
 
     /**
@@ -256,9 +263,15 @@ public final class GlFrameProcessorTestUtil {
   /** Fake {@link HardwareBufferFrame} for testing. */
   public static final class FakeHardwareBufferFrame implements HardwareBufferFrame {
     private final ImmutableMap<String, Object> metadata;
+    private final Format format;
 
     public FakeHardwareBufferFrame(Map<String, Object> metadata) {
-      this.metadata = ImmutableMap.copyOf(metadata);
+      this(new Format.Builder().setWidth(100).setHeight(100).build(), metadata);
+    }
+
+    public FakeHardwareBufferFrame(Format format, Map<String, Object> metadata) {
+      this.format = format;
+      this.metadata = ImmutableMap.<String, Object>builder().putAll(metadata).buildOrThrow();
     }
 
     @Override
@@ -273,7 +286,7 @@ public final class GlFrameProcessorTestUtil {
 
     @Override
     public Format getFormat() {
-      return new Format.Builder().setWidth(100).setHeight(100).build();
+      return format;
     }
 
     @Override
@@ -341,8 +354,7 @@ public final class GlFrameProcessorTestUtil {
     public void close() {}
   }
 
-  public static final class FakeCompositorGlProgram
-      implements DefaultGlTextureFrameCompositingProcessor.CompositorGlProgram {
+  public static final class FakeCompositorGlProgram implements CompositorGlProgram {
     @Nullable public VideoFrameProcessingException exceptionToThrow;
     @Nullable public GlUtil.GlException glExceptionToThrow;
 

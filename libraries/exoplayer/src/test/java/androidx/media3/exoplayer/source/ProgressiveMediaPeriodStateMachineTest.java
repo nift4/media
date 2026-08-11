@@ -16,6 +16,8 @@
 package androidx.media3.exoplayer.source;
 
 import static androidx.media3.exoplayer.source.ProgressiveMediaPeriod.LoadingStateMachine.STATE_CANCELING;
+import static androidx.media3.exoplayer.source.ProgressiveMediaPeriod.LoadingStateMachine.STATE_CANCELING_FOR_CLIPPING;
+import static androidx.media3.exoplayer.source.ProgressiveMediaPeriod.LoadingStateMachine.STATE_CLIPPED_FINISHED;
 import static androidx.media3.exoplayer.source.ProgressiveMediaPeriod.LoadingStateMachine.STATE_DEFERRED_RETRY_PENDING;
 import static androidx.media3.exoplayer.source.ProgressiveMediaPeriod.LoadingStateMachine.STATE_ERROR;
 import static androidx.media3.exoplayer.source.ProgressiveMediaPeriod.LoadingStateMachine.STATE_FINISHED;
@@ -51,7 +53,11 @@ public class ProgressiveMediaPeriodStateMachineTest {
 
   @Test
   public void onStartLoading_idleState_transitionsToLoading() {
-    stateMachine.onStartLoading(/* currentExtractedSamplesCount= */ 0);
+    stateMachine.onStartLoading(
+        /* isPrepared= */ false,
+        /* endPositionUs= */ C.TIME_END_OF_SOURCE,
+        /* durationUs= */ C.TIME_UNSET,
+        /* currentExtractedSamplesCount= */ 0);
 
     assertThat(stateMachine.getState()).isEqualTo(STATE_LOADING);
     assertThat(stateMachine.isPendingReset()).isFalse();
@@ -59,7 +65,7 @@ public class ProgressiveMediaPeriodStateMachineTest {
 
   @Test
   public void onLoadCompleted_loadingState_transitionsToFinished() {
-    stateMachine.onStartLoading(/* currentExtractedSamplesCount= */ 0);
+    startLoading();
 
     stateMachine.onLoadCompleted();
 
@@ -68,10 +74,9 @@ public class ProgressiveMediaPeriodStateMachineTest {
 
   @Test
   public void onSeek_loadingState_outsideBuffer_transitionsToCancelingForSeek() {
-    stateMachine.onStartLoading(/* currentExtractedSamplesCount= */ 0);
+    startLoading();
 
-    stateMachine.onSeek(
-        /* positionUs= */ 5000, /* canSeekInsideBuffer= */ false, /* loaderIsLoading= */ true);
+    stateMachine.onSeek(/* positionUs= */ 5000, /* canSeekInsideBuffer= */ false);
 
     assertThat(stateMachine.getState()).isEqualTo(STATE_CANCELING);
     assertThat(stateMachine.isPendingReset()).isTrue();
@@ -80,10 +85,9 @@ public class ProgressiveMediaPeriodStateMachineTest {
 
   @Test
   public void onSeek_loadingState_insideBuffer_remainsInLoadingState() {
-    stateMachine.onStartLoading(/* currentExtractedSamplesCount= */ 0);
+    startLoading();
 
-    stateMachine.onSeek(
-        /* positionUs= */ 5000, /* canSeekInsideBuffer= */ true, /* loaderIsLoading= */ true);
+    stateMachine.onSeek(/* positionUs= */ 5000, /* canSeekInsideBuffer= */ true);
 
     assertThat(stateMachine.getState()).isEqualTo(STATE_LOADING);
     assertThat(stateMachine.isPendingReset()).isFalse();
@@ -91,11 +95,11 @@ public class ProgressiveMediaPeriodStateMachineTest {
 
   @Test
   public void onLoadCanceled_cancelingForSeekState_transitionsToIdle() {
-    stateMachine.onStartLoading(/* currentExtractedSamplesCount= */ 0);
-    stateMachine.onSeek(
-        /* positionUs= */ 5000, /* canSeekInsideBuffer= */ false, /* loaderIsLoading= */ true);
+    startLoading();
+    stateMachine.onSeek(/* positionUs= */ 5000, /* canSeekInsideBuffer= */ false);
 
-    stateMachine.onLoadCanceled(/* released= */ false);
+    stateMachine.onLoadCanceled(
+        /* released= */ false, /* haveSampleQueuesReachedEndTimeUs= */ false);
 
     assertThat(stateMachine.getState()).isEqualTo(STATE_IDLE);
     assertThat(stateMachine.isPendingReset()).isTrue();
@@ -104,7 +108,7 @@ public class ProgressiveMediaPeriodStateMachineTest {
 
   @Test
   public void onLoadError_isLengthKnown_resumesFromCurrentPosition() {
-    stateMachine.onStartLoading(/* currentExtractedSamplesCount= */ 10);
+    startLoading(/* currentExtractedSamplesCount= */ 10);
 
     stateMachine.onLoadError(
         /* isLengthKnownOrHasDuration= */ true,
@@ -118,7 +122,7 @@ public class ProgressiveMediaPeriodStateMachineTest {
 
   @Test
   public void onLoadError_unknownLengthAndPrepared_defersRetry() {
-    stateMachine.onStartLoading(/* currentExtractedSamplesCount= */ 10);
+    startLoading(/* currentExtractedSamplesCount= */ 10);
 
     stateMachine.onLoadError(
         /* isLengthKnownOrHasDuration= */ false,
@@ -131,9 +135,8 @@ public class ProgressiveMediaPeriodStateMachineTest {
 
   @Test
   public void onLoadError_unknownLengthAndUnprepared_retriesFromStart() {
-    stateMachine.onTrackSelection(
-        /* hasPreroll= */ false, /* enabledTrackCount= */ 1, /* loaderIsLoading= */ false);
-    stateMachine.onStartLoading(/* currentExtractedSamplesCount= */ 10);
+    stateMachine.onTrackSelection(/* hasPreroll= */ false, /* enabledTrackCount= */ 1);
+    startLoading(/* currentExtractedSamplesCount= */ 10);
 
     stateMachine.onLoadError(
         /* isLengthKnownOrHasDuration= */ false,
@@ -150,9 +153,8 @@ public class ProgressiveMediaPeriodStateMachineTest {
 
   @Test
   public void onLoadError_unknownLengthAndReadingSuppressed_retriesFromStart() {
-    stateMachine.onStartLoading(/* currentExtractedSamplesCount= */ 0);
-    stateMachine.onSeek(
-        /* positionUs= */ 5000, /* canSeekInsideBuffer= */ false, /* loaderIsLoading= */ true);
+    startLoading();
+    stateMachine.onSeek(/* positionUs= */ 5000, /* canSeekInsideBuffer= */ false);
 
     stateMachine.onLoadError(
         /* isLengthKnownOrHasDuration= */ false,
@@ -166,7 +168,7 @@ public class ProgressiveMediaPeriodStateMachineTest {
 
   @Test
   public void onDeferredRetryStarted_deferredRetryState_transitionsToIdleAndSetsDiscontinuity() {
-    stateMachine.onStartLoading(/* currentExtractedSamplesCount= */ 0);
+    startLoading();
     stateMachine.onLoadError(
         /* isLengthKnownOrHasDuration= */ false,
         /* isPrepared= */ true,
@@ -199,9 +201,8 @@ public class ProgressiveMediaPeriodStateMachineTest {
 
   @Test
   public void onLoadCompleted_resetsPendingResetPositionUs() {
-    stateMachine.onStartLoading(/* currentExtractedSamplesCount= */ 0);
-    stateMachine.onSeek(
-        /* positionUs= */ 5000, /* canSeekInsideBuffer= */ false, /* loaderIsLoading= */ true);
+    startLoading();
+    stateMachine.onSeek(/* positionUs= */ 5000, /* canSeekInsideBuffer= */ false);
 
     stateMachine.onLoadCompleted();
 
@@ -212,12 +213,10 @@ public class ProgressiveMediaPeriodStateMachineTest {
 
   @Test
   public void onSeek_whenAlreadyPendingReset_updatesPendingPosition() {
-    stateMachine.onStartLoading(/* currentExtractedSamplesCount= */ 0);
-    stateMachine.onSeek(
-        /* positionUs= */ 5000, /* canSeekInsideBuffer= */ false, /* loaderIsLoading= */ true);
+    startLoading();
+    stateMachine.onSeek(/* positionUs= */ 5000, /* canSeekInsideBuffer= */ false);
 
-    stateMachine.onSeek(
-        /* positionUs= */ 8000, /* canSeekInsideBuffer= */ false, /* loaderIsLoading= */ true);
+    stateMachine.onSeek(/* positionUs= */ 8000, /* canSeekInsideBuffer= */ false);
 
     assertThat(stateMachine.getPendingResetPositionUs()).isEqualTo(8000);
     assertThat(stateMachine.getLastSeekPositionUs()).isEqualTo(8000);
@@ -225,8 +224,7 @@ public class ProgressiveMediaPeriodStateMachineTest {
 
   @Test
   public void onSeek_loaderNotLoading_transitionsToIdle() {
-    stateMachine.onSeek(
-        /* positionUs= */ 3000, /* canSeekInsideBuffer= */ false, /* loaderIsLoading= */ false);
+    stateMachine.onSeek(/* positionUs= */ 3000, /* canSeekInsideBuffer= */ false);
 
     assertThat(stateMachine.getState()).isEqualTo(STATE_IDLE);
     assertThat(stateMachine.isPendingReset()).isTrue();
@@ -234,14 +232,26 @@ public class ProgressiveMediaPeriodStateMachineTest {
   }
 
   @Test
+  public void onSeek_whenDeferredRetryPending_transitionsToIdle() {
+    startLoading();
+    stateMachine.onLoadError(
+        /* isLengthKnownOrHasDuration= */ false,
+        /* isPrepared= */ true,
+        /* currentExtractedSamplesCount= */ 0);
+
+    stateMachine.onSeek(/* positionUs= */ 3000, /* canSeekInsideBuffer= */ false);
+
+    assertThat(stateMachine.getState()).isEqualTo(STATE_IDLE);
+    assertThat(stateMachine.isPendingReset()).isTrue();
+  }
+
+  @Test
   public void
       onTrackSelection_enabledTracksZeroAndLoading_transitionsToCancelingAndClearsDiscontinuity() {
-    stateMachine.onStartLoading(/* currentExtractedSamplesCount= */ 0);
-    stateMachine.onTrackSelection(
-        /* hasPreroll= */ true, /* enabledTrackCount= */ 1, /* loaderIsLoading= */ true);
+    startLoading();
+    stateMachine.onTrackSelection(/* hasPreroll= */ true, /* enabledTrackCount= */ 1);
 
-    stateMachine.onTrackSelection(
-        /* hasPreroll= */ false, /* enabledTrackCount= */ 0, /* loaderIsLoading= */ true);
+    stateMachine.onTrackSelection(/* hasPreroll= */ false, /* enabledTrackCount= */ 0);
 
     assertThat(stateMachine.getState()).isEqualTo(STATE_CANCELING);
     assertThat(stateMachine.readDiscontinuity(/* currentExtractedSamplesCount= */ 0))
@@ -250,35 +260,62 @@ public class ProgressiveMediaPeriodStateMachineTest {
 
   @Test
   public void onTrackSelection_enabledTracksZeroAndNotLoading_transitionsToIdle() {
-    stateMachine.onTrackSelection(
-        /* hasPreroll= */ false, /* enabledTrackCount= */ 0, /* loaderIsLoading= */ false);
+    stateMachine.onTrackSelection(/* hasPreroll= */ false, /* enabledTrackCount= */ 0);
 
     assertThat(stateMachine.getState()).isEqualTo(STATE_IDLE);
   }
 
   @Test
-  public void onReevaluateBuffer_allConditionsMet_transitionsToFinished() {
-    stateMachine.onStartLoading(/* currentExtractedSamplesCount= */ 0);
+  public void onEndPositionReached_whenLoading_transitionsToCancelingForClipping() {
+    startLoading();
 
-    stateMachine.onReevaluateBuffer(
-        /* hasEnabledTracks= */ true, /* haveSampleQueuesReachedEndTimeUs= */ true);
+    stateMachine.onEndPositionReached();
 
-    assertThat(stateMachine.getState()).isEqualTo(STATE_FINISHED);
+    assertThat(stateMachine.getState()).isEqualTo(STATE_CANCELING_FOR_CLIPPING);
+    assertThat(stateMachine.isCancelingForClipping()).isTrue();
   }
 
   @Test
-  public void onReevaluateBuffer_hasPendingReset_doesNotTransitionToFinished() {
+  public void onEndPositionReached_whenIdle_transitionsToClippedFinished() {
+    stateMachine.onEndPositionReached();
+
+    assertThat(stateMachine.getState()).isEqualTo(STATE_CLIPPED_FINISHED);
+    assertThat(stateMachine.isFinished()).isTrue();
+  }
+
+  @Test
+  public void onEndPositionReached_whenAlreadyCancelingForSeek_remainsInStateCanceling() {
+    startLoading();
+    stateMachine.onSeek(/* positionUs= */ 5000, /* canSeekInsideBuffer= */ false);
+
+    stateMachine.onEndPositionReached();
+
+    assertThat(stateMachine.getState()).isEqualTo(STATE_CANCELING);
+    assertThat(stateMachine.isCancelingForClipping()).isFalse();
+  }
+
+  @Test
+  public void onEndPositionReached_withPendingReset_doesNotTransitionToClippedFinished() {
     stateMachine.onPrepared(/* isSingleTrack= */ true, /* positionUs= */ 1000);
 
-    stateMachine.onReevaluateBuffer(
-        /* hasEnabledTracks= */ true, /* haveSampleQueuesReachedEndTimeUs= */ true);
+    stateMachine.onEndPositionReached();
 
     assertThat(stateMachine.getState()).isEqualTo(STATE_IDLE);
+  }
+
+  @Test
+  public void onEndPositionReached_inErrorState_doesNotTransitionToClippedFinished() {
+    startLoading();
+    stateMachine.onFatalLoadError();
+
+    stateMachine.onEndPositionReached();
+
+    assertThat(stateMachine.getState()).isEqualTo(STATE_ERROR);
   }
 
   @Test
   public void onFatalLoadError_transitionsToError() {
-    stateMachine.onStartLoading(/* currentExtractedSamplesCount= */ 0);
+    startLoading();
 
     stateMachine.onFatalLoadError();
 
@@ -289,7 +326,11 @@ public class ProgressiveMediaPeriodStateMachineTest {
   public void onStartLoading_clearsPendingResetPositionUs() {
     stateMachine.onPrepared(/* isSingleTrack= */ true, /* positionUs= */ 2000);
 
-    stateMachine.onStartLoading(/* currentExtractedSamplesCount= */ 5);
+    stateMachine.onStartLoading(
+        /* isPrepared= */ true,
+        /* endPositionUs= */ C.TIME_END_OF_SOURCE,
+        /* durationUs= */ C.TIME_UNSET,
+        /* currentExtractedSamplesCount= */ 5);
 
     assertThat(stateMachine.getState()).isEqualTo(STATE_LOADING);
     assertThat(stateMachine.isPendingReset()).isFalse();
@@ -306,8 +347,7 @@ public class ProgressiveMediaPeriodStateMachineTest {
 
   @Test
   public void readDiscontinuity_afterTrackSelectionWithPreroll_handlesInitialDiscontinuity() {
-    stateMachine.onTrackSelection(
-        /* hasPreroll= */ true, /* enabledTrackCount= */ 1, /* loaderIsLoading= */ false);
+    stateMachine.onTrackSelection(/* hasPreroll= */ true, /* enabledTrackCount= */ 1);
 
     long discontinuity = stateMachine.readDiscontinuity(/* currentExtractedSamplesCount= */ 0);
 
@@ -316,8 +356,7 @@ public class ProgressiveMediaPeriodStateMachineTest {
 
   @Test
   public void readDiscontinuity_afterDiscontinuityReadOnce_returnsTimeUnsetOnSubsequentRead() {
-    stateMachine.onTrackSelection(
-        /* hasPreroll= */ true, /* enabledTrackCount= */ 1, /* loaderIsLoading= */ false);
+    stateMachine.onTrackSelection(/* hasPreroll= */ true, /* enabledTrackCount= */ 1);
     long unused = stateMachine.readDiscontinuity(/* currentExtractedSamplesCount= */ 0);
 
     long discontinuity = stateMachine.readDiscontinuity(/* currentExtractedSamplesCount= */ 0);
@@ -327,8 +366,7 @@ public class ProgressiveMediaPeriodStateMachineTest {
 
   @Test
   public void readDiscontinuity_usesStreamPrerollFlags_ignoresInitialDiscontinuity() {
-    stateMachine.onTrackSelection(
-        /* hasPreroll= */ true, /* enabledTrackCount= */ 1, /* loaderIsLoading= */ false);
+    stateMachine.onTrackSelection(/* hasPreroll= */ true, /* enabledTrackCount= */ 1);
 
     stateMachine.setUsesStreamPrerollFlags();
 
@@ -338,9 +376,8 @@ public class ProgressiveMediaPeriodStateMachineTest {
 
   @Test
   public void readDiscontinuity_afterDeferredRetryWithoutProgress_returnsTimeUnset() {
-    stateMachine.onTrackSelection(
-        /* hasPreroll= */ false, /* enabledTrackCount= */ 1, /* loaderIsLoading= */ false);
-    stateMachine.onStartLoading(/* currentExtractedSamplesCount= */ 10);
+    stateMachine.onTrackSelection(/* hasPreroll= */ false, /* enabledTrackCount= */ 1);
+    startLoading(/* currentExtractedSamplesCount= */ 10);
     stateMachine.onLoadError(
         /* isLengthKnownOrHasDuration= */ false,
         /* isPrepared= */ true,
@@ -354,9 +391,8 @@ public class ProgressiveMediaPeriodStateMachineTest {
 
   @Test
   public void readDiscontinuity_afterDeferredRetryWithProgress_returnsDiscontinuityOnce() {
-    stateMachine.onTrackSelection(
-        /* hasPreroll= */ false, /* enabledTrackCount= */ 1, /* loaderIsLoading= */ false);
-    stateMachine.onStartLoading(/* currentExtractedSamplesCount= */ 10);
+    stateMachine.onTrackSelection(/* hasPreroll= */ false, /* enabledTrackCount= */ 1);
+    startLoading(/* currentExtractedSamplesCount= */ 10);
     stateMachine.onLoadError(
         /* isLengthKnownOrHasDuration= */ false,
         /* isPrepared= */ true,
@@ -397,9 +433,8 @@ public class ProgressiveMediaPeriodStateMachineTest {
 
   @Test
   public void canContinueLoading_cancelingState_returnsFalse() {
-    stateMachine.onStartLoading(/* currentExtractedSamplesCount= */ 0);
-    stateMachine.onSeek(
-        /* positionUs= */ 5000, /* canSeekInsideBuffer= */ false, /* loaderIsLoading= */ true);
+    startLoading();
+    stateMachine.onSeek(/* positionUs= */ 5000, /* canSeekInsideBuffer= */ false);
 
     boolean canContinue =
         stateMachine.canContinueLoading(
@@ -410,7 +445,7 @@ public class ProgressiveMediaPeriodStateMachineTest {
 
   @Test
   public void canContinueLoading_deferredRetryPending_returnsFalse() {
-    stateMachine.onStartLoading(/* currentExtractedSamplesCount= */ 0);
+    startLoading();
     stateMachine.onLoadError(
         /* isLengthKnownOrHasDuration= */ false,
         /* isPrepared= */ true,
@@ -425,7 +460,7 @@ public class ProgressiveMediaPeriodStateMachineTest {
 
   @Test
   public void canContinueLoading_errorState_returnsFalse() {
-    stateMachine.onStartLoading(/* currentExtractedSamplesCount= */ 0);
+    startLoading();
     stateMachine.onFatalLoadError();
 
     boolean canContinue =
@@ -437,7 +472,7 @@ public class ProgressiveMediaPeriodStateMachineTest {
 
   @Test
   public void canContinueLoading_finishedState_returnsFalse() {
-    stateMachine.onStartLoading(/* currentExtractedSamplesCount= */ 0);
+    startLoading();
     stateMachine.onLoadCompleted();
 
     boolean canContinue =
@@ -445,6 +480,68 @@ public class ProgressiveMediaPeriodStateMachineTest {
             /* isPreparedOrSingleTrack= */ true, /* enabledTrackCount= */ 1);
 
     assertThat(canContinue).isFalse();
+  }
+
+  @Test
+  public void canContinueLoading_clippedFinishedState_returnsFalse() {
+    stateMachine.onEndPositionReached();
+
+    boolean canContinue =
+        stateMachine.canContinueLoading(
+            /* isPreparedOrSingleTrack= */ true, /* enabledTrackCount= */ 1);
+
+    assertThat(canContinue).isFalse();
+  }
+
+  @Test
+  public void canContinueLoading_cancelingForClippingState_returnsFalse() {
+    startLoading();
+    stateMachine.onEndPositionReached();
+
+    boolean canContinue =
+        stateMachine.canContinueLoading(
+            /* isPreparedOrSingleTrack= */ true, /* enabledTrackCount= */ 1);
+
+    assertThat(canContinue).isFalse();
+  }
+
+  @Test
+  public void canSeekInsideBuffer_loadingAndNotLive_returnsTrue() {
+    startLoading();
+
+    boolean canSeek = stateMachine.canSeekInsideBuffer(C.DATA_TYPE_MEDIA);
+
+    assertThat(canSeek).isTrue();
+  }
+
+  @Test
+  public void canSeekInsideBuffer_liveStream_returnsFalse() {
+    startLoading();
+
+    boolean canSeek = stateMachine.canSeekInsideBuffer(C.DATA_TYPE_MEDIA_PROGRESSIVE_LIVE);
+
+    assertThat(canSeek).isFalse();
+  }
+
+  @Test
+  public void canSeekInsideBuffer_pendingReset_returnsFalse() {
+    startLoading();
+    stateMachine.onSeek(/* positionUs= */ 5000, /* canSeekInsideBuffer= */ false);
+
+    boolean canSeek = stateMachine.canSeekInsideBuffer(C.DATA_TYPE_MEDIA);
+
+    assertThat(canSeek).isFalse();
+  }
+
+  @Test
+  public void canSeekInsideBuffer_cancelingForClipping_returnsTrue() {
+    startLoading();
+    stateMachine.onEndPositionReached();
+    assertThat(stateMachine.getState()).isEqualTo(STATE_CANCELING_FOR_CLIPPING);
+
+    boolean canSeek = stateMachine.canSeekInsideBuffer(C.DATA_TYPE_MEDIA);
+
+    assertThat(canSeek).isTrue();
   }
 
   @Test
@@ -456,7 +553,7 @@ public class ProgressiveMediaPeriodStateMachineTest {
 
   @Test
   public void isFinished_inFinishedState_returnsTrue() {
-    stateMachine.onStartLoading(/* currentExtractedSamplesCount= */ 0);
+    startLoading();
 
     stateMachine.onLoadCompleted();
 
@@ -464,8 +561,25 @@ public class ProgressiveMediaPeriodStateMachineTest {
   }
 
   @Test
+  public void isLoading_inLoadingAndCancelingStates_returnsTrue() {
+    assertThat(stateMachine.isLoading()).isFalse();
+
+    startLoading();
+    assertThat(stateMachine.isLoading()).isTrue();
+
+    stateMachine.onEndPositionReached();
+    assertThat(stateMachine.getState()).isEqualTo(STATE_CANCELING_FOR_CLIPPING);
+    assertThat(stateMachine.isLoading()).isTrue();
+
+    stateMachine.onLoadCanceled(
+        /* released= */ false, /* haveSampleQueuesReachedEndTimeUs= */ true);
+    assertThat(stateMachine.getState()).isEqualTo(STATE_CLIPPED_FINISHED);
+    assertThat(stateMachine.isLoading()).isFalse();
+  }
+
+  @Test
   public void isDeferredRetryPending_inDeferredRetryState_returnsTrue() {
-    stateMachine.onStartLoading(/* currentExtractedSamplesCount= */ 0);
+    startLoading();
 
     stateMachine.onLoadError(
         /* isLengthKnownOrHasDuration= */ false,
@@ -477,8 +591,7 @@ public class ProgressiveMediaPeriodStateMachineTest {
 
   @Test
   public void isLastSeekPosition_matchesLastSeekPosition() {
-    stateMachine.onSeek(
-        /* positionUs= */ 5000, /* canSeekInsideBuffer= */ true, /* loaderIsLoading= */ true);
+    stateMachine.onSeek(/* positionUs= */ 5000, /* canSeekInsideBuffer= */ true);
 
     boolean matches = stateMachine.isLastSeekPosition(5000);
 
@@ -488,7 +601,7 @@ public class ProgressiveMediaPeriodStateMachineTest {
 
   @Test
   public void hasExtractedProgressSinceLoadStart_evaluatesProgress() {
-    stateMachine.onStartLoading(/* currentExtractedSamplesCount= */ 10);
+    startLoading(/* currentExtractedSamplesCount= */ 10);
 
     boolean progressMade = stateMachine.hasExtractedProgressSinceLoadStart(11);
 
@@ -498,8 +611,7 @@ public class ProgressiveMediaPeriodStateMachineTest {
 
   @Test
   public void onTrackSelection_noPreroll_clearsPendingInitialDiscontinuity() {
-    stateMachine.onTrackSelection(
-        /* hasPreroll= */ false, /* enabledTrackCount= */ 1, /* loaderIsLoading= */ false);
+    stateMachine.onTrackSelection(/* hasPreroll= */ false, /* enabledTrackCount= */ 1);
 
     long discontinuity = stateMachine.readDiscontinuity(/* currentExtractedSamplesCount= */ 0);
 
@@ -508,8 +620,7 @@ public class ProgressiveMediaPeriodStateMachineTest {
 
   @Test
   public void onTrackSelection_withPreroll_retainsPendingInitialDiscontinuity() {
-    stateMachine.onTrackSelection(
-        /* hasPreroll= */ true, /* enabledTrackCount= */ 1, /* loaderIsLoading= */ false);
+    stateMachine.onTrackSelection(/* hasPreroll= */ true, /* enabledTrackCount= */ 1);
 
     long discontinuity = stateMachine.readDiscontinuity(/* currentExtractedSamplesCount= */ 0);
 
@@ -518,11 +629,9 @@ public class ProgressiveMediaPeriodStateMachineTest {
 
   @Test
   public void onTrackSelection_subsequentCallsDoNotOverwriteClearedDiscontinuity() {
-    stateMachine.onTrackSelection(
-        /* hasPreroll= */ false, /* enabledTrackCount= */ 1, /* loaderIsLoading= */ false);
+    stateMachine.onTrackSelection(/* hasPreroll= */ false, /* enabledTrackCount= */ 1);
 
-    stateMachine.onTrackSelection(
-        /* hasPreroll= */ true, /* enabledTrackCount= */ 1, /* loaderIsLoading= */ false);
+    stateMachine.onTrackSelection(/* hasPreroll= */ true, /* enabledTrackCount= */ 1);
 
     assertThat(stateMachine.readDiscontinuity(/* currentExtractedSamplesCount= */ 0))
         .isEqualTo(C.TIME_UNSET);
@@ -530,11 +639,9 @@ public class ProgressiveMediaPeriodStateMachineTest {
 
   @Test
   public void onTrackSelection_tracksCleared_clearsInitialDiscontinuity() {
-    stateMachine.onTrackSelection(
-        /* hasPreroll= */ true, /* enabledTrackCount= */ 1, /* loaderIsLoading= */ false);
+    stateMachine.onTrackSelection(/* hasPreroll= */ true, /* enabledTrackCount= */ 1);
 
-    stateMachine.onTrackSelection(
-        /* hasPreroll= */ false, /* enabledTrackCount= */ 0, /* loaderIsLoading= */ false);
+    stateMachine.onTrackSelection(/* hasPreroll= */ false, /* enabledTrackCount= */ 0);
 
     assertThat(stateMachine.readDiscontinuity(/* currentExtractedSamplesCount= */ 0))
         .isEqualTo(C.TIME_UNSET);
@@ -542,8 +649,7 @@ public class ProgressiveMediaPeriodStateMachineTest {
 
   @Test
   public void onTrackSelection_zeroTracks_setsSeenFirstTrackSelectionTrue() {
-    stateMachine.onTrackSelection(
-        /* hasPreroll= */ false, /* enabledTrackCount= */ 0, /* loaderIsLoading= */ false);
+    stateMachine.onTrackSelection(/* hasPreroll= */ false, /* enabledTrackCount= */ 0);
 
     boolean seenFirstSelection = stateMachine.hasSeenFirstTrackSelection();
 
@@ -552,11 +658,255 @@ public class ProgressiveMediaPeriodStateMachineTest {
 
   @Test
   public void onTrackSelection_nonZeroTracks_setsSeenFirstTrackSelectionTrue() {
-    stateMachine.onTrackSelection(
-        /* hasPreroll= */ false, /* enabledTrackCount= */ 2, /* loaderIsLoading= */ false);
+    stateMachine.onTrackSelection(/* hasPreroll= */ false, /* enabledTrackCount= */ 2);
 
     boolean seenFirstSelection = stateMachine.hasSeenFirstTrackSelection();
 
     assertThat(seenFirstSelection).isTrue();
+  }
+
+  @Test
+  public void onLoadCanceled_cancelingForClippingState_transitionsToClippedFinished() {
+    startLoading();
+    stateMachine.onEndPositionReached();
+
+    stateMachine.onLoadCanceled(
+        /* released= */ false, /* haveSampleQueuesReachedEndTimeUs= */ true);
+
+    assertThat(stateMachine.getState()).isEqualTo(STATE_CLIPPED_FINISHED);
+    assertThat(stateMachine.isFinished()).isTrue();
+  }
+
+  @Test
+  public void onLoadCanceled_loadingState_remainsInLoadingState() {
+    startLoading();
+
+    stateMachine.onLoadCanceled(
+        /* released= */ false, /* haveSampleQueuesReachedEndTimeUs= */ false);
+
+    assertThat(stateMachine.getState()).isEqualTo(STATE_LOADING);
+  }
+
+  @Test
+  public void onEndPositionReached_whenFinished_transitionsToClippedFinished() {
+    startLoading();
+    stateMachine.onLoadCompleted();
+    assertThat(stateMachine.getState()).isEqualTo(STATE_FINISHED);
+
+    stateMachine.onEndPositionReached();
+
+    assertThat(stateMachine.getState()).isEqualTo(STATE_CLIPPED_FINISHED);
+    assertThat(stateMachine.isFinished()).isTrue();
+  }
+
+  @Test
+  public void onLoadCanceled_cancelingForClippingState_notReachedEndTime_transitionsToIdle() {
+    startLoading();
+    stateMachine.onEndPositionReached();
+
+    stateMachine.onLoadCanceled(
+        /* released= */ false, /* haveSampleQueuesReachedEndTimeUs= */ false);
+
+    assertThat(stateMachine.getState()).isEqualTo(STATE_IDLE);
+    assertThat(stateMachine.isFinished()).isFalse();
+  }
+
+  @Test
+  public void onSeek_cancelingForClippingState_convertsToCancelingForSeek() {
+    startLoading();
+    stateMachine.onEndPositionReached();
+
+    stateMachine.onSeek(/* positionUs= */ 2_000_000, /* canSeekInsideBuffer= */ false);
+
+    assertThat(stateMachine.getState()).isEqualTo(STATE_CANCELING);
+    assertThat(stateMachine.isCancelingForClipping()).isFalse();
+    assertThat(stateMachine.isPendingReset()).isTrue();
+    assertThat(stateMachine.getPendingResetPositionUs()).isEqualTo(2_000_000);
+  }
+
+  @Test
+  public void onEndPositionExtended_whenClippedFinished_transitionsToIdle() {
+    stateMachine.onEndPositionReached();
+    assertThat(stateMachine.getState()).isEqualTo(STATE_CLIPPED_FINISHED);
+
+    stateMachine.onEndPositionExtended();
+
+    assertThat(stateMachine.getState()).isEqualTo(STATE_IDLE);
+    assertThat(stateMachine.isFinished()).isFalse();
+  }
+
+  @Test
+  public void onEndPositionExtended_whenFinished_remainsFinished() {
+    stateMachine.onLoadCompleted();
+    assertThat(stateMachine.getState()).isEqualTo(STATE_FINISHED);
+
+    stateMachine.onEndPositionExtended();
+
+    assertThat(stateMachine.getState()).isEqualTo(STATE_FINISHED);
+    assertThat(stateMachine.isFinished()).isTrue();
+  }
+
+  @Test
+  public void onTrackSelection_zeroTracks_whenCancelingForClipping_transitionsToCanceling() {
+    startLoading();
+    stateMachine.onEndPositionReached();
+    assertThat(stateMachine.getState()).isEqualTo(STATE_CANCELING_FOR_CLIPPING);
+
+    stateMachine.onTrackSelection(/* hasPreroll= */ false, /* enabledTrackCount= */ 0);
+
+    assertThat(stateMachine.getState()).isEqualTo(STATE_CANCELING);
+  }
+
+  @Test
+  public void onTrackSelection_zeroTracks_whenClippedFinished_transitionsToIdle() {
+    stateMachine.onEndPositionReached();
+    assertThat(stateMachine.getState()).isEqualTo(STATE_CLIPPED_FINISHED);
+
+    stateMachine.onTrackSelection(/* hasPreroll= */ false, /* enabledTrackCount= */ 0);
+
+    assertThat(stateMachine.getState()).isEqualTo(STATE_IDLE);
+  }
+
+  @Test
+  public void onSeek_outsideBuffer_whenClippedFinished_transitionsToIdle() {
+    stateMachine.onEndPositionReached();
+    assertThat(stateMachine.getState()).isEqualTo(STATE_CLIPPED_FINISHED);
+
+    stateMachine.onSeek(/* positionUs= */ 5000, /* canSeekInsideBuffer= */ false);
+
+    assertThat(stateMachine.getState()).isEqualTo(STATE_IDLE);
+    assertThat(stateMachine.isPendingReset()).isTrue();
+    assertThat(stateMachine.getPendingResetPositionUs()).isEqualTo(5000);
+  }
+
+  @Test
+  public void onStartLoading_seekBeyondClippedEnd_transitionsToClippedFinished() {
+    stateMachine.onSeek(/* positionUs= */ 5000, /* canSeekInsideBuffer= */ false);
+    assertThat(stateMachine.isPendingReset()).isTrue();
+
+    stateMachine.onStartLoading(
+        /* isPrepared= */ true,
+        /* endPositionUs= */ 3000,
+        /* durationUs= */ C.TIME_UNSET,
+        /* currentExtractedSamplesCount= */ 0);
+
+    assertThat(stateMachine.getState()).isEqualTo(STATE_CLIPPED_FINISHED);
+    assertThat(stateMachine.isFinished()).isTrue();
+    assertThat(stateMachine.isPendingReset()).isFalse();
+    assertThat(stateMachine.getPendingResetPositionUs()).isEqualTo(C.TIME_UNSET);
+    assertThat(stateMachine.suppressRead()).isFalse();
+  }
+
+  @Test
+  public void onStartLoading_seekBeyondDuration_transitionsToFinished() {
+    stateMachine.onSeek(/* positionUs= */ 5000, /* canSeekInsideBuffer= */ false);
+    assertThat(stateMachine.isPendingReset()).isTrue();
+
+    stateMachine.onStartLoading(
+        /* isPrepared= */ true,
+        /* endPositionUs= */ C.TIME_END_OF_SOURCE,
+        /* durationUs= */ 3000,
+        /* currentExtractedSamplesCount= */ 0);
+
+    assertThat(stateMachine.getState()).isEqualTo(STATE_FINISHED);
+    assertThat(stateMachine.isFinished()).isTrue();
+    assertThat(stateMachine.isPendingReset()).isFalse();
+    assertThat(stateMachine.getPendingResetPositionUs()).isEqualTo(C.TIME_UNSET);
+    assertThat(stateMachine.suppressRead()).isFalse();
+  }
+
+  @Test
+  public void onStartLoading_seekWithinLoadableRange_transitionsToLoading() {
+    stateMachine.onSeek(/* positionUs= */ 2000, /* canSeekInsideBuffer= */ false);
+    assertThat(stateMachine.isPendingReset()).isTrue();
+
+    stateMachine.onStartLoading(
+        /* isPrepared= */ true,
+        /* endPositionUs= */ 3000,
+        /* durationUs= */ C.TIME_UNSET,
+        /* currentExtractedSamplesCount= */ 0);
+
+    assertThat(stateMachine.getState()).isEqualTo(STATE_LOADING);
+    assertThat(stateMachine.isFinished()).isFalse();
+    assertThat(stateMachine.isPendingReset()).isFalse();
+    assertThat(stateMachine.getPendingResetPositionUs()).isEqualTo(C.TIME_UNSET);
+  }
+
+  @Test
+  public void canSeekInsideBuffer_clippedFinished_returnsTrue() {
+    stateMachine.onEndPositionReached();
+    assertThat(stateMachine.getState()).isEqualTo(STATE_CLIPPED_FINISHED);
+
+    assertThat(stateMachine.canSeekInsideBuffer(C.DATA_TYPE_MEDIA)).isTrue();
+  }
+
+  @Test
+  public void canContinueLoading_cancelingForClipping_returnsFalse() {
+    startLoading();
+    stateMachine.onEndPositionReached();
+    assertThat(stateMachine.getState()).isEqualTo(STATE_CANCELING_FOR_CLIPPING);
+
+    assertThat(
+            stateMachine.canContinueLoading(
+                /* isPreparedOrSingleTrack= */ true, /* enabledTrackCount= */ 1))
+        .isFalse();
+  }
+
+  @Test
+  public void canContinueLoading_clippedFinished_returnsFalse() {
+    stateMachine.onEndPositionReached();
+    assertThat(stateMachine.getState()).isEqualTo(STATE_CLIPPED_FINISHED);
+
+    assertThat(
+            stateMachine.canContinueLoading(
+                /* isPreparedOrSingleTrack= */ true, /* enabledTrackCount= */ 1))
+        .isFalse();
+  }
+
+  @Test
+  public void onFatalLoadError_whenCancelingForClipping_transitionsToError() {
+    startLoading();
+    stateMachine.onEndPositionReached();
+    assertThat(stateMachine.getState()).isEqualTo(STATE_CANCELING_FOR_CLIPPING);
+
+    stateMachine.onFatalLoadError();
+
+    assertThat(stateMachine.getState()).isEqualTo(STATE_ERROR);
+  }
+
+  @Test
+  public void onEndPositionReached_whenDeferredRetryPending_transitionsToClippedFinished() {
+    startLoading();
+    stateMachine.onLoadError(
+        /* isLengthKnownOrHasDuration= */ false,
+        /* isPrepared= */ true,
+        /* currentExtractedSamplesCount= */ 5);
+    assertThat(stateMachine.getState()).isEqualTo(STATE_DEFERRED_RETRY_PENDING);
+
+    stateMachine.onEndPositionReached();
+
+    assertThat(stateMachine.getState()).isEqualTo(STATE_CLIPPED_FINISHED);
+  }
+
+  @Test
+  public void onEndPositionReached_whenError_remainsError() {
+    stateMachine.onFatalLoadError();
+    assertThat(stateMachine.getState()).isEqualTo(STATE_ERROR);
+
+    stateMachine.onEndPositionReached();
+
+    assertThat(stateMachine.getState()).isEqualTo(STATE_ERROR);
+  }
+
+  private void startLoading() {
+    startLoading(/* currentExtractedSamplesCount= */ 0);
+  }
+
+  private void startLoading(int currentExtractedSamplesCount) {
+    stateMachine.onStartLoading(
+        /* isPrepared= */ false,
+        /* endPositionUs= */ C.TIME_END_OF_SOURCE,
+        /* durationUs= */ C.TIME_UNSET,
+        currentExtractedSamplesCount);
   }
 }

@@ -37,6 +37,7 @@ import androidx.media3.common.ColorInfo;
 import androidx.media3.common.Format;
 import androidx.media3.common.VideoFrameProcessingException;
 import androidx.media3.common.util.ExperimentalApi;
+import androidx.media3.common.util.Log;
 import androidx.media3.common.video.HardwareBufferPool.HardwareBufferWithFence;
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -70,6 +71,8 @@ public final class SurfaceHolderFrameWriter implements FrameWriter, SurfaceHolde
     /** Called when video output ends. */
     void onEnded();
   }
+
+  private static final String TAG = "SHFrameWriter";
 
   private static final int CAPACITY = 2;
 
@@ -226,11 +229,17 @@ public final class SurfaceHolderFrameWriter implements FrameWriter, SurfaceHolde
 
   @Override
   public Info getInfo() {
+    // PQ SurfaceView output is supported from API 33, but HLG output is supported from API 34.
+    // By returning false for HLG on API < 34, we signal the pipeline to fall back (e.g., converting
+    // HLG to PQ) so that HLG input can still be displayed.
     return (format, usageFlags) ->
         format.colorInfo != null
-            && (!ColorInfo.isTransferHdr(format.colorInfo) || SDK_INT >= 33)
             && format.width > 0
-            && format.height > 0;
+            && format.height > 0
+            && (!ColorInfo.isTransferHdr(format.colorInfo)
+                || (format.colorInfo.colorTransfer == C.COLOR_TRANSFER_HLG
+                    ? SDK_INT >= 34
+                    : SDK_INT >= 33));
   }
 
   @Override
@@ -542,21 +551,26 @@ public final class SurfaceHolderFrameWriter implements FrameWriter, SurfaceHolde
       image.close();
       return;
     }
-    if (hardwareBufferNativeHelpers != null) {
-      checkState(
-          hardwareBufferNativeHelpers.nativeCopyHardwareBufferToHardwareBuffer(
-              lastQueuedHardwareBuffer, checkNotNull(image.getHardwareBuffer())));
-    } else if (SDK_INT >= 29) {
-      Bitmap bitmap =
-          checkNotNull(Bitmap.wrapHardwareBuffer(lastQueuedHardwareBuffer, /* colorSpace= */ null))
-              .copy(getBitmapConfig(lastQueuedHardwareBuffer.getFormat()), /* isMutable= */ false);
-      if (bitmap != null) {
+    try {
+      if (hardwareBufferNativeHelpers != null) {
+        checkState(
+            hardwareBufferNativeHelpers.nativeCopyHardwareBufferToHardwareBuffer(
+                lastQueuedHardwareBuffer, checkNotNull(image.getHardwareBuffer())));
+      } else if (SDK_INT >= 29) {
+        Bitmap bitmap =
+            checkNotNull(
+                    Bitmap.wrapHardwareBuffer(lastQueuedHardwareBuffer, /* colorSpace= */ null))
+                .copy(
+                    getBitmapConfig(lastQueuedHardwareBuffer.getFormat()), /* isMutable= */ false);
         ByteBuffer planeBuffer = image.getPlanes()[0].getBuffer();
         planeBuffer.rewind();
-        bitmap.copyPixelsToBuffer(planeBuffer);
+        checkNotNull(bitmap).copyPixelsToBuffer(planeBuffer);
       }
+    } catch (RuntimeException e) {
+      Log.w(TAG, "Failed to restore backup frame", e);
+    } finally {
+      imageWriter.queueInputImage(image);
     }
-    imageWriter.queueInputImage(image);
   }
 
   @GuardedBy("lock")

@@ -24,6 +24,8 @@ import static androidx.media3.effect.DefaultGlFrameProcessor.KEY_FRAME_DISCONTIN
 import static androidx.media3.test.utils.AssetInfo.JPG_ASSET;
 import static androidx.media3.test.utils.AssetInfo.MP4_12_5FPS;
 import static androidx.media3.test.utils.AssetInfo.MP4_15FPS;
+import static androidx.media3.test.utils.AssetInfo.MP4_ADVANCED_ASSET;
+import static androidx.media3.test.utils.AssetInfo.MP4_ASSET_WITH_INCREASING_TIMESTAMPS_320W_240H_5S;
 import static androidx.media3.test.utils.AssetInfo.MP4_SIMPLE_ASSET;
 import static androidx.media3.test.utils.AssetInfo.WAV_ASSET;
 import static androidx.media3.test.utils.TestUtil.createByteCountingAudioProcessor;
@@ -38,9 +40,16 @@ import static androidx.media3.transformer.TestUtil.ASSET_URI_PREFIX;
 import static androidx.media3.transformer.TestUtil.FILE_AUDIO_RAW;
 import static androidx.media3.transformer.TestUtil.FILE_AUDIO_RAW_STEREO_48000KHZ;
 import static androidx.media3.transformer.TestUtil.FILE_PNG;
+import static androidx.media3.transformer.TestUtil.FPS_10;
+import static androidx.media3.transformer.TestUtil.FPS_30;
+import static androidx.media3.transformer.TestUtil.FPS_60;
+import static androidx.media3.transformer.TestUtil.FPS_HALF;
+import static androidx.media3.transformer.TestUtil.assertTimestampsMatchFrameRate;
 import static androidx.media3.transformer.TestUtil.createTestCompositionPlayer;
 import static androidx.media3.transformer.TestUtil.createTestCompositionPlayerBuilder;
 import static androidx.media3.transformer.TestUtil.createTestHardwareBufferCompositionPlayerBuilder;
+import static androidx.media3.transformer.TestUtil.getQueuedContentTimesUs;
+import static androidx.media3.transformer.TestUtil.setupAndPrepareHardwareBufferPlayer;
 import static androidx.test.core.app.ApplicationProvider.getApplicationContext;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.collect.Iterables.getLast;
@@ -61,6 +70,7 @@ import android.hardware.HardwareBuffer;
 import android.os.Handler;
 import android.os.HandlerThread;
 import android.os.Looper;
+import android.util.Rational;
 import android.view.Surface;
 import android.view.TextureView;
 import androidx.annotation.Nullable;
@@ -96,6 +106,7 @@ import androidx.media3.exoplayer.audio.ForwardingAudioSink;
 import androidx.media3.exoplayer.audio.TrimmingAudioProcessor;
 import androidx.media3.test.utils.CapturingFrameProcessor;
 import androidx.media3.test.utils.CapturingFrameProcessor.FramesEvent;
+import androidx.media3.test.utils.EditedMediaItemAssetInfo;
 import androidx.media3.test.utils.FakeFrameProcessor;
 import androidx.media3.test.utils.TestSpeedProvider;
 import androidx.media3.test.utils.robolectric.ShadowMediaCodecConfig;
@@ -107,10 +118,12 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.testing.junit.testparameterinjector.TestParameter;
 import com.google.testing.junit.testparameterinjector.TestParameterValuesProvider;
+import java.nio.ByteBuffer;
 import java.util.List;
 import java.util.concurrent.Executor;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
 import org.junit.After;
@@ -122,6 +135,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
 import org.mockito.Mockito;
 import org.robolectric.RobolectricTestParameterInjector;
+import org.robolectric.annotation.Config;
 import org.robolectric.shadows.ShadowLooper;
 
 /** Unit tests for {@link CompositionPlayer}. */
@@ -424,6 +438,7 @@ public class CompositionPlayerTest {
           "AUDIO_ITEM_WITH_CLIPPED_START_AND_END_WITH_SET_HALF_SPEED");
 
   @MonotonicNonNull CompositionPlayer player;
+
   private CapturingFrameProcessor.Factory frameProcessorFactory;
 
   @Before
@@ -1374,6 +1389,68 @@ public class CompositionPlayerTest {
         .containsExactly(
             ImmutableList.of(0L, 0L), ImmutableList.of(0L, 0L, 0L), ImmutableList.of(0L))
         .inOrder();
+  }
+
+  @Test
+  public void frameProcessor_setCompositionWithImageVideo_rendersFirstFrameBeforeStarted()
+      throws PlaybackException, TimeoutException {
+    Composition composition1 =
+        new Composition.Builder(
+                EditedMediaItemSequence.withAudioAndVideoFrom(
+                    ImmutableList.of(
+                        EditedMediaItemAssetInfo.IMAGE.getEditedMediaItem(),
+                        EditedMediaItemAssetInfo.VIDEO.getEditedMediaItem())))
+            .build();
+    MaxPositionAudioSink customAudioSink =
+        new MaxPositionAudioSink(new DefaultAudioSink.Builder(getApplicationContext()).build());
+    customAudioSink.maxPositionUs.set(0);
+    player =
+        createTestHardwareBufferCompositionPlayerBuilder(frameProcessorFactory)
+            .setAudioSink(customAudioSink)
+            .build();
+    player.setComposition(composition1);
+    player.prepare();
+
+    advance(player).withTimeoutMs(TEST_TIMEOUT_MS).untilState(STATE_READY);
+
+    CapturingFrameProcessor frameProcessor = frameProcessorFactory.getCreatedProcessor();
+    assertThat(frameProcessor).isNotNull();
+    assertThat(frameProcessor.getQueuedContentTimesUs()).containsExactly(ImmutableList.of(0L));
+  }
+
+  @Test
+  @Config(minSdk = 28)
+  public void frameProcessor_setComposition_withLowFrameRate_rendersFirstFrame()
+      throws PlaybackException, TimeoutException {
+    MediaItem clippedMediaItem =
+        new MediaItem.Builder()
+            .setUri(MP4_SIMPLE_ASSET.uri)
+            .setClippingConfiguration(
+                new MediaItem.ClippingConfiguration.Builder()
+                    .setStartPositionMs(430)
+                    .setEndPositionMs(460)
+                    .build())
+            .build();
+
+    Composition composition =
+        new Composition.Builder(
+                EditedMediaItemSequence.withAudioAndVideoFrom(
+                    ImmutableList.of(
+                        new EditedMediaItem.Builder(clippedMediaItem)
+                            .setDurationUs(MP4_SIMPLE_ASSET.videoDurationUs)
+                            .setFrameRate(1)
+                            .build())))
+            .build();
+    player = createTestHardwareBufferCompositionPlayerBuilder(frameProcessorFactory).build();
+
+    player.setComposition(composition);
+    player.prepare();
+    player.play();
+    advance(player).untilState(STATE_ENDED);
+
+    CapturingFrameProcessor frameProcessor = frameProcessorFactory.getCreatedProcessor();
+    assertThat(frameProcessor).isNotNull();
+    assertThat(getQueuedContentTimesUs(frameProcessor)).containsExactly(3766L);
   }
 
   @Test
@@ -2911,6 +2988,91 @@ public class CompositionPlayerTest {
     assertThat(firstBuffer.isClosed()).isFalse();
   }
 
+  @Test
+  public void playback_withAggregationFpsLowerThanIntrinsic_downsamplesFrames() throws Exception {
+    Composition composition =
+        TestUtil.buildComposition(ImmutableList.of(ImmutableList.of(MP4_SIMPLE_ASSET)), FPS_10);
+
+    runPlaybackAndAssertFps(composition, FPS_10);
+  }
+
+  @Test
+  public void playback_withAggregationIntervalLongerThanDuration_outputsSingleFrame()
+      throws Exception {
+    Composition composition =
+        TestUtil.buildComposition(ImmutableList.of(ImmutableList.of(MP4_SIMPLE_ASSET)), FPS_HALF);
+
+    // The aggregation interval (2 seconds) is longer than the composition duration (~1.09
+    // seconds). We expect only the first frame (at 0 us) to be output, as the playback ends before
+    // the next interval boundary is reached.
+    runPlaybackAndAssert(composition, FPS_HALF, /* expectSingleFrame= */ true);
+  }
+
+  @Test
+  public void playback_withAggregationFpsLowerThan1Fps_downsamplesFrames() throws Exception {
+    Composition composition =
+        TestUtil.buildComposition(
+            ImmutableList.of(
+                ImmutableList.of(MP4_SIMPLE_ASSET, MP4_SIMPLE_ASSET, MP4_SIMPLE_ASSET)),
+            FPS_HALF);
+
+    runPlaybackAndAssertFps(composition, FPS_HALF);
+  }
+
+  @Test
+  public void playback_withAggregationFpsHigherThanIntrinsic_upsamplesFrames() throws Exception {
+    Composition composition =
+        TestUtil.buildComposition(ImmutableList.of(ImmutableList.of(MP4_SIMPLE_ASSET)), FPS_60);
+
+    runPlaybackAndAssertFps(composition, FPS_60);
+  }
+
+  @Test
+  public void playback_withAggregationFpsMatchingIntrinsic_matchesIntrinsicFps() throws Exception {
+    Composition composition =
+        TestUtil.buildComposition(ImmutableList.of(ImmutableList.of(MP4_SIMPLE_ASSET)), FPS_30);
+
+    runPlaybackAndAssertFps(composition, FPS_30);
+  }
+
+  @Test
+  public void playback_withAggregationFpsAndVaryingFpsInMultiSequence_outputsFramesAtTargetFps()
+      throws Exception {
+    Composition composition =
+        TestUtil.buildComposition(
+            ImmutableList.of(
+                ImmutableList.of(MP4_15FPS), // 15 FPS
+                ImmutableList.of(MP4_SIMPLE_ASSET), // 29.97 FPS
+                ImmutableList.of(MP4_ASSET_WITH_INCREASING_TIMESTAMPS_320W_240H_5S)), // 60 FPS
+            FPS_30);
+
+    runPlaybackAndAssertFps(composition, FPS_30);
+  }
+
+  @Test
+  public void playback_withAggregationFpsAndVaryingFpsInSingleSequence_outputsFramesAtTargetFps()
+      throws Exception {
+    Composition composition =
+        TestUtil.buildComposition(
+            ImmutableList.of(
+                ImmutableList.of(
+                    MP4_15FPS, // 15 FPS
+                    MP4_SIMPLE_ASSET, // 29.97 FPS
+                    MP4_ASSET_WITH_INCREASING_TIMESTAMPS_320W_240H_5S)), // 60 FPS
+            FPS_30);
+
+    runPlaybackAndAssertFps(composition, FPS_30);
+  }
+
+  @Test
+  public void playback_withAggregationFpsHigherThanIntrinsicAndBFrame_outputsTargetFps()
+      throws Exception {
+    Composition composition =
+        TestUtil.buildComposition(ImmutableList.of(ImmutableList.of(MP4_ADVANCED_ASSET)), FPS_60);
+
+    runPlaybackAndAssertFps(composition, FPS_60);
+  }
+
   private static EditedMediaItem getImageItem() {
     return new EditedMediaItem.Builder(
             new MediaItem.Builder()
@@ -2920,6 +3082,29 @@ public class CompositionPlayerTest {
         .setDurationUs(1_000_000L)
         .setFrameRate(30)
         .build();
+  }
+
+  private void runPlaybackAndAssertFps(Composition composition, Rational expectedFps)
+      throws Exception {
+    runPlaybackAndAssert(composition, expectedFps, /* expectSingleFrame= */ false);
+  }
+
+  private void runPlaybackAndAssert(
+      Composition composition, Rational expectedFps, boolean expectSingleFrame) throws Exception {
+    player = setupAndPrepareHardwareBufferPlayer(composition, frameProcessorFactory);
+    CapturingFrameProcessor frameProcessor = frameProcessorFactory.getCreatedProcessor();
+
+    player.play();
+    advance(player).untilState(STATE_ENDED);
+
+    ImmutableList<Long> queuedTimestampsUs = getQueuedContentTimesUs(frameProcessor);
+    assertThat(queuedTimestampsUs).isNotEmpty();
+    assertThat(queuedTimestampsUs.get(0)).isEqualTo(0L);
+    if (expectSingleFrame) {
+      assertThat(queuedTimestampsUs).hasSize(1);
+    } else {
+      assertTimestampsMatchFrameRate(queuedTimestampsUs, expectedFps);
+    }
   }
 
   private static Composition buildComposition() {
@@ -3115,6 +3300,30 @@ public class CompositionPlayerTest {
       if (Looper.myLooper() != playbackLooper.get()) {
         threadViolations.incrementAndGet();
       }
+    }
+  }
+
+  /** An {@link AudioSink} that only allows buffers up to a set position to be consumed. */
+  private static class MaxPositionAudioSink extends ForwardingAudioSink {
+
+    private final AudioSink sink;
+    private final AtomicLong maxPositionUs;
+
+    MaxPositionAudioSink(AudioSink sink) {
+      super(sink);
+      this.sink = sink;
+      maxPositionUs = new AtomicLong(C.TIME_UNSET);
+    }
+
+    @Override
+    public boolean handleBuffer(
+        ByteBuffer buffer, long presentationTimeUs, int encodedAccessUnitCount)
+        throws InitializationException, WriteException {
+      long maxPositionUs = this.maxPositionUs.get();
+      if (maxPositionUs != C.TIME_UNSET && presentationTimeUs >= maxPositionUs) {
+        return false;
+      }
+      return sink.handleBuffer(buffer, presentationTimeUs, encodedAccessUnitCount);
     }
   }
 }

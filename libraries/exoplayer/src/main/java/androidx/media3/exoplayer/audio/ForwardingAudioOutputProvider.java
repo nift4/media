@@ -71,6 +71,12 @@ public class ForwardingAudioOutputProvider implements AudioOutputProvider {
     return audioOutputProvider.getAudioCapabilities();
   }
 
+  @UnstableApi
+  @Override
+  public boolean hasPendingReleases() {
+    return audioOutputProvider.hasPendingReleases();
+  }
+
   @Override
   public void release() {
     audioOutputProvider.release();

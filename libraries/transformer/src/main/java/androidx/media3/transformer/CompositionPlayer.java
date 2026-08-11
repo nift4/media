@@ -101,6 +101,7 @@ import androidx.media3.exoplayer.ExoPlayer;
 import androidx.media3.exoplayer.LoadControl;
 import androidx.media3.exoplayer.RendererCapabilities;
 import androidx.media3.exoplayer.RendererCapabilities.Capabilities;
+import androidx.media3.exoplayer.ScrubbingModeParameters;
 import androidx.media3.exoplayer.analytics.AnalyticsCollector;
 import androidx.media3.exoplayer.analytics.AnalyticsListener;
 import androidx.media3.exoplayer.analytics.DefaultAnalyticsCollector;
@@ -190,6 +191,7 @@ public final class CompositionPlayer extends SimpleBasePlayer {
     @Nullable private HardwareBufferJniWrapper hardwareBufferJniWrapper;
 
     private Supplier<ImageReaderAdapter.Factory> imageReaderAdapterFactorySupplier;
+    @Nullable private AnalyticsListener sequencePlayerAnalyticsListener;
 
     private boolean videoPrewarmingEnabled;
     private boolean perStreamMediaProgressionEnabled;
@@ -510,8 +512,8 @@ public final class CompositionPlayer extends SimpleBasePlayer {
      * used and {@link CompositionPlayer} will not process {@link
      * androidx.media3.common.video.HardwareBufferFrame}s.
      *
-     * <p>If used on API 32 and below, the {@linkplain #setNativeHardwareBufferHelpers native
-     * helpers} must be set.
+     * <p>{@linkplain #setNativeHardwareBufferHelpers Native helpers} must be set when using this
+     * method.
      *
      * @param frameProcessorFactory The {@link FrameProcessor.Factory}.
      * @return This builder.
@@ -534,7 +536,7 @@ public final class CompositionPlayer extends SimpleBasePlayer {
      *
      * <p>This method is experimental and will be renamed or removed in a future release.
      *
-     * <p>This will only be used if {@link #setHardwareBufferEffectsPipeline} is set.
+     * <p>This will only be used if {@link #setFrameProcessorFactory} is set.
      *
      * @param hardwareBufferJniWrapper The {@link HardwareBufferJniWrapper} to provide native
      *     helpers.
@@ -564,6 +566,19 @@ public final class CompositionPlayer extends SimpleBasePlayer {
     /* package */ Builder setImageReaderAdapterFactory(
         ImageReaderAdapter.Factory imageReaderAdapterFactory) {
       this.imageReaderAdapterFactorySupplier = () -> imageReaderAdapterFactory;
+      return this;
+    }
+
+    /**
+     * Sets a {@link AnalyticsListener} to receive events from internal players for testing
+     * purposes.
+     *
+     * @return This builder.
+     */
+    @CanIgnoreReturnValue
+    @VisibleForTesting
+    /* package */ Builder setSequencePlayerAnalyticsListener(AnalyticsListener listener) {
+      sequencePlayerAnalyticsListener = listener;
       return this;
     }
 
@@ -665,6 +680,7 @@ public final class CompositionPlayer extends SimpleBasePlayer {
   private final SparseBooleanArray videoTracksSelected;
 
   private final AnalyticsCollector analyticsCollector;
+  @Nullable private final AnalyticsListener sequencePlayerAnalyticsListener;
 
   private @MonotonicNonNull CompositionPlayerInternal compositionPlayerInternal;
   private @MonotonicNonNull ImmutableList<MediaItemData> playlist;
@@ -722,6 +738,7 @@ public final class CompositionPlayer extends SimpleBasePlayer {
     this.enableReplayableCache = builder.enableReplayableCache;
     lateThresholdToDropInputUs = builder.lateThresholdToDropInputUs;
     imageReaderAdapterFactory = builder.imageReaderAdapterFactorySupplier.get();
+    sequencePlayerAnalyticsListener = builder.sequencePlayerAnalyticsListener;
     videoTracksSelected = new SparseBooleanArray();
     playerHolders = new ArrayList<>();
     compositionDurationUs = C.TIME_UNSET;
@@ -768,18 +785,18 @@ public final class CompositionPlayer extends SimpleBasePlayer {
           hardwareBufferPostProcessor = null;
         }
         surfaceHolderFrameWriter =
-            SDK_INT >= 33
+            hardwareBufferJniWrapper != null || SDK_INT < 33
                 ? SurfaceHolderFrameWriter.create(
                     /* surfaceHolder= */ null,
                     /* surfaceHolderExecutor= */ applicationThreadExecutor,
                     internalListener,
-                    applicationThreadExecutor)
+                    applicationThreadExecutor,
+                    checkNotNull(hardwareBufferJniWrapper))
                 : SurfaceHolderFrameWriter.create(
                     /* surfaceHolder= */ null,
                     /* surfaceHolderExecutor= */ applicationThreadExecutor,
                     internalListener,
-                    applicationThreadExecutor,
-                    checkNotNull(hardwareBufferJniWrapper));
+                    applicationThreadExecutor);
         frameProcessor =
             frameProcessorFactory.create(
                 surfaceHolderFrameWriter,
@@ -1584,7 +1601,7 @@ public final class CompositionPlayer extends SimpleBasePlayer {
       frameAggregator =
           new FrameAggregator(
               composition.sequences.size(),
-              /* frameRate= */ null,
+              composition.videoFrameAggregationParameters.frameRate,
               videoPacketReleaseControl::queue,
               videoPacketReleaseControl::flush);
     }
@@ -1735,6 +1752,9 @@ public final class CompositionPlayer extends SimpleBasePlayer {
     playerHolder.player.addListener(new PlayerListener(sequenceIndex));
     playerHolder.player.addAnalyticsListener(new PlayerAnalyticsListener());
     playerHolder.player.addAnalyticsListener(new EventLogger(TAG + "-" + sequenceIndex));
+    if (sequencePlayerAnalyticsListener != null) {
+      playerHolder.player.addAnalyticsListener(sequencePlayerAnalyticsListener);
+    }
     // Audio focus is handled directly by CompositionPlayer, not by sequence players.
     playerHolder.player.setAudioAttributes(audioAttributes, /* handleAudioFocus= */ false);
     playerHolder.player.setPauseAtEndOfMediaItems(true);
@@ -2386,6 +2406,12 @@ public final class CompositionPlayer extends SimpleBasePlayer {
               .setHandleAudioBecomingNoisy(true)
               .setLoadControl(loadControl)
               .setClock(clock)
+              .setScrubbingModeParameters(
+                  ScrubbingModeParameters.DEFAULT
+                      .buildUpon()
+                      // TODO(b/542579779): Re-enable allowSkippingMediaCodecFlush.
+                      .setAllowSkippingMediaCodecFlush(false)
+                      .build())
               // Use dynamic scheduling to show the first video/image frame more promptly when the
               // player is paused (which is common in editing applications).
               .experimentalSetDynamicSchedulingEnabled(true)

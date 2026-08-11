@@ -193,7 +193,7 @@ import java.util.Objects;
 
   private static final long BUFFERING_MAXIMUM_INTERVAL_MS =
       Util.usToMs(Renderer.DEFAULT_DURATION_TO_PROGRESS_US);
-  private static final long READY_MAXIMUM_INTERVAL_MS = 1000;
+  /* package */ static final long READY_MAXIMUM_INTERVAL_MS = 1000;
 
   /**
    * Duration for which the player needs to appear stuck before the playback is failed on the
@@ -1398,7 +1398,7 @@ import java.util.Objects;
                 /* reportDiscontinuity= */ reportSilenceSkip,
                 Player.DISCONTINUITY_REASON_SILENCE_SKIP);
       } else {
-        playbackInfo.updatePositionUs(periodPositionUs);
+        playbackInfo.updatePositionUs(periodPositionUs, clock.elapsedRealtime());
       }
     }
 
@@ -1470,7 +1470,6 @@ import java.util.Objects;
 
     boolean renderersEnded = true;
     boolean renderersAllowPlayback = true;
-    boolean hasActiveVideoOrImageRenderer = false;
     if (playingPeriodHolder.prepared) {
       rendererPositionElapsedRealtimeUs = msToUs(clock.elapsedRealtime());
       playingPeriodHolder.mediaPeriod.discardBuffer(
@@ -1488,13 +1487,6 @@ import java.util.Objects;
         // getting stuck if tracks in the current period have uneven durations and are still being
         // read by another renderer. See: https://github.com/google/ExoPlayer/issues/1874.
         renderersEnded = renderersEnded && renderer.isEnded();
-        if (seekIsPendingWhileScrubbing
-            && renderer.isRendererEnabled()
-            && (renderer.getTrackType() == C.TRACK_TYPE_VIDEO
-                || renderer.getTrackType() == C.TRACK_TYPE_IMAGE)
-            && !renderer.isEnded()) {
-          hasActiveVideoOrImageRenderer = true;
-        }
         boolean allowsPlayback = renderer.allowsPlayback(playingPeriodHolder);
         maybeTriggerOnRendererReadyChanged(/* rendererIndex= */ i, allowsPlayback);
         renderersAllowPlayback = renderersAllowPlayback && allowsPlayback;
@@ -1502,11 +1494,7 @@ import java.util.Objects;
           maybeThrowRendererStreamError(/* rendererIndex= */ i);
         }
       }
-      if (seekIsPendingWhileScrubbing
-          && !hasActiveVideoOrImageRenderer
-          && !handler.hasMessages(MSG_SEEK_COMPLETED_IN_SCRUBBING_MODE)) {
-        handler.obtainMessage(MSG_SEEK_COMPLETED_IN_SCRUBBING_MODE).sendToTarget();
-      }
+      maybeEndPendingScrubbingSeek();
     } else {
       playingPeriodHolder.mediaPeriod.maybeThrowPrepareError();
     }
@@ -1588,6 +1576,9 @@ import java.util.Objects;
     requestForRendererSleep = false; // A sleep request is only valid for the current doSomeWork.
 
     if (sleepingForOffload || playbackInfo.playbackState == Player.STATE_ENDED) {
+      if (sleepingForOffload && !playbackInfo.useEstimatedPosition) {
+        playbackInfo = playbackInfo.copyWithUseEstimatedPosition(true);
+      }
       // No need to schedule next work.
     } else if ((isPlaying || playbackInfo.playbackState == Player.STATE_BUFFERING)
         || (playbackInfo.playbackState == Player.STATE_READY && enabledRendererCount != 0)) {
@@ -1607,6 +1598,24 @@ import java.util.Objects;
               analyticsCollector.onRendererReadyChanged(
                   rendererIndex, renderers[rendererIndex].getTrackType(), allowsPlayback));
     }
+  }
+
+  private void maybeEndPendingScrubbingSeek() {
+    if (!seekIsPendingWhileScrubbing || handler.hasMessages(MSG_SEEK_COMPLETED_IN_SCRUBBING_MODE)) {
+      return;
+    }
+    for (RendererHolder renderer : renderers) {
+      if (renderer.isRendererEnabled()
+          && (renderer.getTrackType() == C.TRACK_TYPE_VIDEO
+              || renderer.getTrackType() == C.TRACK_TYPE_IMAGE)
+          && !renderer.isEnded()) {
+        return;
+      }
+    }
+    // A pending seek in scrubbing mode normally completes when the next video frame or image is
+    // rendered. If all relevant renderers have ended, no frame will be rendered, so complete the
+    // seek immediately to avoid stalling subsequent seeks.
+    handler.obtainMessage(MSG_SEEK_COMPLETED_IN_SCRUBBING_MODE).sendToTarget();
   }
 
   private long getCurrentLiveOffsetUs() {
@@ -1639,6 +1648,11 @@ import java.util.Objects;
         isDynamicSchedulingEnabled()
             ? getDynamicSchedulingWakeUpIntervalMs()
             : getStaticSchedulingWakeUpIntervalMs();
+    boolean useEstimatedPosition =
+        shouldPlayWhenReady() && wakeUpTimeIntervalMs > BUFFERING_MAXIMUM_INTERVAL_MS;
+    if (playbackInfo.useEstimatedPosition != useEstimatedPosition) {
+      playbackInfo = playbackInfo.copyWithUseEstimatedPosition(useEstimatedPosition);
+    }
     handler.sendEmptyMessageAtTime(
         MSG_DO_SOME_WORK, thisOperationStartTimeMs + wakeUpTimeIntervalMs);
   }
@@ -2075,6 +2089,9 @@ import java.util.Objects;
       boolean releaseMediaSourceList,
       boolean resetError) {
     handler.removeMessages(MSG_DO_SOME_WORK);
+    if (playbackInfo.useEstimatedPosition) {
+      playbackInfo = playbackInfo.copyWithEstimatedPosition(clock.elapsedRealtime());
+    }
     seekIsPendingWhileScrubbing = false;
     if (queuedSeekWhileScrubbing != null) {
       playbackInfoUpdate.incrementPendingOperationAcks(/* operationAcks= */ 1);
@@ -2163,7 +2180,8 @@ import java.util.Objects;
             /* totalBufferedDurationUs= */ 0,
             /* positionUs= */ startPositionUs,
             /* positionUpdateTimeMs= */ 0,
-            /* sleepingForOffload= */ false);
+            /* sleepingForOffload= */ false,
+            /* useEstimatedPosition= */ false);
     if (releaseMediaSourceList) {
       queue.releasePreloadPool();
       mediaSourceList.release();
@@ -3499,6 +3517,9 @@ import java.util.Objects;
       if (acknowledgeCommand) {
         playbackInfoUpdate.incrementPendingOperationAcks(1);
       }
+      if (playbackInfo.useEstimatedPosition) {
+        playbackInfo = playbackInfo.copyWithEstimatedPosition(clock.elapsedRealtime());
+      }
       playbackInfo = playbackInfo.copyWithPlaybackParameters(playbackParameters);
     }
     updateTrackSelectionPlaybackSpeed(playbackParameters.speed);
@@ -3629,6 +3650,7 @@ import java.util.Objects;
         requestedContentPositionUs,
         discontinuityStartPositionUs,
         getTotalBufferedDurationUs(),
+        clock.elapsedRealtime(),
         trackGroupArray,
         trackSelectorResult,
         staticMetadata);
@@ -4056,10 +4078,13 @@ import java.util.Objects;
             contentPositionForAdResolutionUs,
             enforceAdPlaybackOnTimelineRefresh,
             /* transitionsFromPlaceholderPeriod= */ isUsingPlaceholderPeriod);
-    boolean earliestCuePointIsUnchangedOrLater =
+    boolean earliestAdGroupIsUnchangedOrLater =
         periodIdWithAds.nextAdGroupIndex == C.INDEX_UNSET
             || (oldPeriodId.nextAdGroupIndex != C.INDEX_UNSET
                 && periodIdWithAds.nextAdGroupIndex >= oldPeriodId.nextAdGroupIndex);
+    boolean isOldAdGroupWithinNewPeriod =
+        isOldAdGroupWithinNewPeriod(
+            timeline.getPeriodByUid(newPeriodUid, period), oldPeriodId.nextAdGroupIndex);
     // Drop update if we keep playing the same content (MediaPeriod.periodUid are identical) and
     // the only change is that MediaPeriodId.nextAdGroupIndex increased. This postpones a potential
     // discontinuity until we reach the former next ad group position.
@@ -4068,7 +4093,8 @@ import java.util.Objects;
         sameOldAndNewPeriodUid
             && !oldPeriodId.isAd()
             && !periodIdWithAds.isAd()
-            && earliestCuePointIsUnchangedOrLater;
+            && isOldAdGroupWithinNewPeriod
+            && earliestAdGroupIsUnchangedOrLater;
     // Drop update if the change is from/to server-side inserted ads at the same content position to
     // avoid any unintentional renderer reset.
     boolean isInStreamAdChange =
@@ -4180,6 +4206,22 @@ import java.util.Objects;
     MediaPeriodId periodId = playbackInfo.periodId;
     Timeline timeline = playbackInfo.timeline;
     return timeline.isEmpty() || timeline.getPeriodByUid(periodId.periodUid, period).isPlaceholder;
+  }
+
+  private static boolean isOldAdGroupWithinNewPeriod(
+      Timeline.Period newPeriod, int oldNextAdGroupIndex) {
+    if (oldNextAdGroupIndex == C.INDEX_UNSET) {
+      return true;
+    }
+    if (oldNextAdGroupIndex >= newPeriod.adPlaybackState.adGroupCount) {
+      return false;
+    }
+    AdGroup newAdGroupAtOldIndex = newPeriod.adPlaybackState.getAdGroup(oldNextAdGroupIndex);
+    if (newAdGroupAtOldIndex.timeUs == C.TIME_END_OF_SOURCE) {
+      return true;
+    }
+    return newAdGroupAtOldIndex.timeUs <= newPeriod.durationUs
+        || newPeriod.durationUs == C.TIME_UNSET;
   }
 
   /**

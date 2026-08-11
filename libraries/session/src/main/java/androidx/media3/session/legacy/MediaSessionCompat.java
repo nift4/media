@@ -69,7 +69,6 @@ import com.google.common.util.concurrent.ListenableFuture;
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.lang.ref.WeakReference;
-import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
@@ -328,7 +327,8 @@ public class MediaSessionCompat {
   @SuppressWarnings({
     "method.invocation.invalid",
     "argument.type.incompatible",
-    "assignment.type.incompatible"
+    "assignment.type.incompatible",
+    "PendingIntentMutability"
   }) // registering listener from constructor
   public MediaSessionCompat(
       Context context,
@@ -744,8 +744,7 @@ public class MediaSessionCompat {
 
     @Nullable
     @GuardedBy("lock")
-    @SuppressWarnings("WeakerAccess") /* synthetic access */
-    CallbackHandler callbackHandler;
+    private CallbackHandler callbackHandler;
 
     public Callback() {
       callbackFwk = new MediaSessionCallback();
@@ -1869,7 +1868,7 @@ public class MediaSessionCompat {
 
   static class MediaSessionImplApi23 implements MediaSessionImpl {
     final MediaSession sessionFwk;
-    final ExtraSession extraSession;
+    private final ExtraSession extraSession;
     final Token token;
     final Object lock = new Object();
     @Nullable Bundle sessionInfo;
@@ -2300,23 +2299,15 @@ public class MediaSessionCompat {
     }
 
     @Override
+    @SuppressLint("MissingPermission") // Checked at runtime in MediaSessionCompat constructor.
     public MediaSession createFwkMediaSession(
         Context context,
         String tag,
         @Nullable Bundle sessionInfo,
         @Nullable String packageNameOverride) {
       if (packageNameOverride != null) {
-        // TODO: b/500320224- Replace reflection with actual API once the compileSdk version is
-        //  bumped to 37.
-        try {
-          Constructor<MediaSession> constructor =
-              MediaSession.class.getConstructor(
-                  Context.class, String.class, Bundle.class, String.class);
-          return constructor.newInstance(
-              context, tag, sessionInfo == null ? Bundle.EMPTY : sessionInfo, packageNameOverride);
-        } catch (ReflectiveOperationException e) {
-          throw new IllegalStateException("Unable to create session with overridden owner", e);
-        }
+        return new MediaSession(
+            context, tag, sessionInfo == null ? Bundle.EMPTY : sessionInfo, packageNameOverride);
       } else {
         return new MediaSession(context, tag, sessionInfo);
       }

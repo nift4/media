@@ -33,6 +33,7 @@ import static org.mockito.Mockito.when;
 import static org.robolectric.Shadows.shadowOf;
 
 import android.os.Looper;
+import android.os.SystemClock;
 import android.util.Pair;
 import androidx.annotation.Nullable;
 import androidx.media3.common.AdPlaybackState;
@@ -54,8 +55,8 @@ import androidx.media3.exoplayer.source.MediaSource.MediaSourceCaller;
 import androidx.media3.exoplayer.source.SampleStream;
 import androidx.media3.exoplayer.source.SinglePeriodTimeline;
 import androidx.media3.exoplayer.source.TrackGroupArray;
+import androidx.media3.exoplayer.source.ads.AdTimeline;
 import androidx.media3.exoplayer.source.ads.ServerSideAdInsertionMediaSource;
-import androidx.media3.exoplayer.source.ads.SinglePeriodAdTimeline;
 import androidx.media3.exoplayer.trackselection.ExoTrackSelection;
 import androidx.media3.exoplayer.trackselection.TrackSelector;
 import androidx.media3.exoplayer.trackselection.TrackSelectorResult;
@@ -321,8 +322,7 @@ public final class MediaPeriodQueueTest {
             .withContentResumeOffsetUs(/* adGroupIndex= */ 0, /* contentResumeOffsetUs= */ 2000)
             .withContentResumeOffsetUs(/* adGroupIndex= */ 1, /* contentResumeOffsetUs= */ 3000)
             .withContentResumeOffsetUs(/* adGroupIndex= */ 2, /* contentResumeOffsetUs= */ 4000);
-    SinglePeriodAdTimeline adTimeline =
-        new SinglePeriodAdTimeline(CONTENT_TIMELINE, adPlaybackState);
+    AdTimeline adTimeline = new AdTimeline(CONTENT_TIMELINE, adPlaybackState);
     setupTimelines(adTimeline);
 
     setAdGroupLoaded(/* adGroupIndex= */ 0);
@@ -398,8 +398,7 @@ public final class MediaPeriodQueueTest {
             .withIsServerSideInserted(/* adGroupIndex= */ 0, /* isServerSideInserted= */ true)
             .withIsServerSideInserted(/* adGroupIndex= */ 1, /* isServerSideInserted= */ true)
             .withIsServerSideInserted(/* adGroupIndex= */ 2, /* isServerSideInserted= */ true);
-    SinglePeriodAdTimeline adTimeline =
-        new SinglePeriodAdTimeline(CONTENT_TIMELINE, adPlaybackState);
+    AdTimeline adTimeline = new AdTimeline(CONTENT_TIMELINE, adPlaybackState);
     setupTimelines(adTimeline);
 
     setAdGroupLoaded(/* adGroupIndex= */ 0);
@@ -477,8 +476,7 @@ public final class MediaPeriodQueueTest {
     adPlaybackState =
         new AdPlaybackState(/* adsId= */ new Object())
             .withLivePostrollPlaceholderAppended(/* isServerSideInserted= */ false);
-    SinglePeriodAdTimeline adTimeline =
-        new SinglePeriodAdTimeline(liveContentTimeline, adPlaybackState);
+    AdTimeline adTimeline = new AdTimeline(liveContentTimeline, adPlaybackState);
     setupTimelines(adTimeline);
 
     assertGetNextMediaPeriodInfoReturnsContentMediaPeriod(
@@ -889,7 +887,7 @@ public final class MediaPeriodQueueTest {
                 .setDefaultPositionUs(0)
                 .setWindowPositionInFirstPeriodUs(0)
                 .build());
-    setupTimelines(new SinglePeriodAdTimeline(liveContentTimeline, adPlaybackState));
+    setupTimelines(new AdTimeline(liveContentTimeline, adPlaybackState));
     long[][] newDurations = new long[adPlaybackState.adGroupCount][];
     newDurations[0] = new long[] {AD_DURATION_US};
     adPlaybackState =
@@ -897,9 +895,7 @@ public final class MediaPeriodQueueTest {
             .withAdCount(0, /* adCount= */ 1)
             .withAvailableAdMediaItem(0, /* adIndexInAdGroup= */ 0, AD_MEDIA_ITEM)
             .withAdDurationsUs(newDurations);
-    fakeMediaSources
-        .get(0)
-        .setNewSourceInfo(new SinglePeriodAdTimeline(liveContentTimeline, adPlaybackState));
+    fakeMediaSources.get(0).setNewSourceInfo(new AdTimeline(liveContentTimeline, adPlaybackState));
     shadowOf(Looper.getMainLooper()).idle();
     playbackInfo = playbackInfo.copyWithTimeline(mediaSourceList.createTimeline());
     enqueueNext(); // Enqueue preroll ad.
@@ -1011,8 +1007,7 @@ public final class MediaPeriodQueueTest {
     adPlaybackState =
         new AdPlaybackState(/* adsId= */ new Object(), /* adGroupTimes... */ FIRST_AD_START_TIME_US)
             .withIsServerSideInserted(/* adGroupIndex= */ 0, /* isServerSideInserted= */ true);
-    SinglePeriodAdTimeline adTimeline =
-        new SinglePeriodAdTimeline(CONTENT_TIMELINE, adPlaybackState);
+    AdTimeline adTimeline = new AdTimeline(CONTENT_TIMELINE, adPlaybackState);
     setupTimelines(adTimeline);
     setAdGroupLoaded(/* adGroupIndex= */ 0);
     enqueueNext(); // Content before ad.
@@ -1352,7 +1347,7 @@ public final class MediaPeriodQueueTest {
             /* useLiveConfiguration= */ true,
             /* manifest= */ null,
             AD_MEDIA_ITEM);
-    setupTimelines(new SinglePeriodAdTimeline(liveTimeline, adPlaybackState));
+    setupTimelines(new AdTimeline(liveTimeline, adPlaybackState));
     enqueueNext();
     // The period needs to be prepared to get the actual buffered position from it.
     mediaPeriodQueue
@@ -1455,7 +1450,7 @@ public final class MediaPeriodQueueTest {
         new AdPlaybackState(/* adsId= */ new Object(), 10 * C.MICROS_PER_SECOND)
             .withIsServerSideInserted(/* adGroupIndex= */ 0, true)
             .withContentDurationUs(CONTENT_DURATION_US);
-    setupTimelines(new SinglePeriodAdTimeline(CONTENT_TIMELINE, adPlaybackState));
+    setupTimelines(new AdTimeline(CONTENT_TIMELINE, adPlaybackState));
     enqueueNext();
 
     // Expand the content period: move ad group start time 10s -> 12s.
@@ -1987,6 +1982,7 @@ public final class MediaPeriodQueueTest {
             /* requestedContentPositionUs= */ C.TIME_UNSET,
             /* discontinuityStartPositionUs= */ 0,
             /* totalBufferedDurationUs= */ 0,
+            SystemClock.elapsedRealtime(),
             /* trackGroups= */ null,
             /* trackSelectorResult= */ null,
             /* staticMetadata= */ ImmutableList.of());
@@ -2022,6 +2018,7 @@ public final class MediaPeriodQueueTest {
             /* requestedContentPositionUs= */ C.TIME_UNSET,
             /* discontinuityStartPositionUs= */ 0,
             /* totalBufferedDurationUs= */ 0,
+            SystemClock.elapsedRealtime(),
             /* trackGroups= */ null,
             /* trackSelectorResult= */ null,
             /* staticMetadata= */ ImmutableList.of());
@@ -2056,6 +2053,7 @@ public final class MediaPeriodQueueTest {
             /* requestedContentPositionUs= */ C.TIME_UNSET,
             /* discontinuityStartPositionUs= */ 0,
             /* totalBufferedDurationUs= */ 0,
+            SystemClock.elapsedRealtime(),
             /* trackGroups= */ null,
             /* trackSelectorResult= */ null,
             /* staticMetadata= */ ImmutableList.of());
@@ -2093,6 +2091,7 @@ public final class MediaPeriodQueueTest {
             /* requestedContentPositionUs= */ C.TIME_UNSET,
             /* discontinuityStartPositionUs= */ 0,
             /* totalBufferedDurationUs= */ 0,
+            SystemClock.elapsedRealtime(),
             /* trackGroups= */ null,
             /* trackSelectorResult= */ null,
             /* staticMetadata= */ ImmutableList.of());
@@ -2150,7 +2149,8 @@ public final class MediaPeriodQueueTest {
             /* totalBufferedDurationUs= */ 0,
             /* positionUs= */ 0,
             /* positionUpdateTimeMs= */ 0,
-            /* sleepingForOffload= */ false);
+            /* sleepingForOffload= */ false,
+            /* useEstimatedPosition= */ false);
 
     MediaPeriodId mediaPeriodId =
         mediaPeriodQueue.resolveMediaPeriodIdForAdsAfterPeriodPositionChange(
@@ -2359,8 +2359,7 @@ public final class MediaPeriodQueueTest {
             .withAdDurationsUs(/* adGroupIndex= */ 0, 2_000L)
             .withAdDurationsUs(/* adGroupIndex= */ 1, 1_000L)
             .withContentDurationUs(CONTENT_DURATION_US);
-    SinglePeriodAdTimeline adTimeline =
-        new SinglePeriodAdTimeline(CONTENT_TIMELINE, adPlaybackState);
+    AdTimeline adTimeline = new AdTimeline(CONTENT_TIMELINE, adPlaybackState);
     setupMediaSources(
         new FakeMediaSource(), new FakeMediaSource(adTimeline), new FakeMediaSource());
     mediaPeriodQueue.updatePreloadConfiguration(
@@ -2535,8 +2534,7 @@ public final class MediaPeriodQueueTest {
     adPlaybackState =
         new AdPlaybackState(/* adsId= */ new Object(), adGroupTimesUs)
             .withContentDurationUs(CONTENT_DURATION_US);
-    SinglePeriodAdTimeline adTimeline =
-        new SinglePeriodAdTimeline(CONTENT_TIMELINE, adPlaybackState);
+    AdTimeline adTimeline = new AdTimeline(CONTENT_TIMELINE, adPlaybackState);
     setupTimelines(adTimeline);
   }
 
@@ -2587,7 +2585,8 @@ public final class MediaPeriodQueueTest {
             /* totalBufferedDurationUs= */ 0,
             /* positionUs= */ 0,
             /* positionUpdateTimeMs= */ 0,
-            /* sleepingForOffload= */ false);
+            /* sleepingForOffload= */ false,
+            /* useEstimatedPosition= */ false);
   }
 
   private void advance() {
@@ -2619,6 +2618,7 @@ public final class MediaPeriodQueueTest {
             /* requestedContentPositionUs= */ C.TIME_UNSET,
             /* discontinuityStartPositionUs= */ 0,
             /* totalBufferedDurationUs= */ 0,
+            SystemClock.elapsedRealtime(),
             /* trackGroups= */ null,
             /* trackSelectorResult= */ null,
             /* staticMetadata= */ ImmutableList.of());
@@ -2668,8 +2668,7 @@ public final class MediaPeriodQueueTest {
   }
 
   private void updateAdTimeline(int mediaSourceIndex) {
-    SinglePeriodAdTimeline adTimeline =
-        new SinglePeriodAdTimeline(CONTENT_TIMELINE, adPlaybackState);
+    AdTimeline adTimeline = new AdTimeline(CONTENT_TIMELINE, adPlaybackState);
     fakeMediaSources.get(mediaSourceIndex).setNewSourceInfo(adTimeline);
     // Progress the looper so that the source info events have been executed.
     shadowOf(Looper.getMainLooper()).idle();

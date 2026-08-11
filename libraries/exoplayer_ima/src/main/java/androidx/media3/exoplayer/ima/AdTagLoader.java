@@ -21,6 +21,7 @@ import static androidx.media3.exoplayer.ima.ImaUtil.BITRATE_UNSET;
 import static androidx.media3.exoplayer.ima.ImaUtil.TIMEOUT_UNSET;
 import static androidx.media3.exoplayer.ima.ImaUtil.getAdGroupTimesUsForCuePoints;
 import static androidx.media3.exoplayer.ima.ImaUtil.getImaLooper;
+import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
 import static com.google.common.base.Preconditions.checkState;
 import static java.lang.Math.max;
@@ -118,13 +119,13 @@ import java.util.Objects;
   private static final int IMA_AD_STATE_NONE = 0;
 
   /**
-   * The ad playback state when IMA has called {@link ComponentListener#playAd(AdMediaInfo)} and not
-   * {@link ComponentListener##pauseAd(AdMediaInfo)}.
+   * The ad playback state when IMA has called {@link VideoAdPlayer#playAd(AdMediaInfo)} and not
+   * {@link VideoAdPlayer#pauseAd(AdMediaInfo)}.
    */
   private static final int IMA_AD_STATE_PLAYING = 1;
 
   /**
-   * The ad playback state when IMA has called {@link ComponentListener#pauseAd(AdMediaInfo)} while
+   * The ad playback state when IMA has called {@link VideoAdPlayer#pauseAd(AdMediaInfo)} while
    * playing an ad.
    */
   private static final int IMA_AD_STATE_PAUSED = 2;
@@ -200,9 +201,9 @@ import java.util.Objects;
 
   /**
    * If a content period has finished but IMA has not yet called {@link
-   * ComponentListener#playAd(AdMediaInfo)}, stores the value of {@link
-   * SystemClock#elapsedRealtime()} when the content stopped playing. This can be used to determine
-   * a fake, increasing content position. {@link C#TIME_UNSET} otherwise.
+   * VideoAdPlayer#playAd(AdMediaInfo)}, stores the value of {@link SystemClock#elapsedRealtime()}
+   * when the content stopped playing. This can be used to determine a fake, increasing content
+   * position. {@link C#TIME_UNSET} otherwise.
    */
   private long fakeContentProgressElapsedRealtimeMs;
 
@@ -216,7 +217,7 @@ import java.util.Objects;
   private long pendingContentPositionMs;
 
   /**
-   * Whether {@link ComponentListener#getContentProgress()} has sent {@link
+   * Whether {@link ContentProgressProvider#getContentProgress()} has sent {@link
    * #pendingContentPositionMs} to IMA.
    */
   private boolean sentPendingContentPositionMs;
@@ -490,7 +491,13 @@ import java.util.Objects;
     }
     Player player = this.player;
     this.timeline = timeline;
-    long contentDurationUs = timeline.getPeriod(player.getCurrentPeriodIndex(), period).durationUs;
+    int windowIndex = player.getCurrentMediaItemIndex();
+    Timeline.Window window = new Timeline.Window();
+    timeline.getWindow(windowIndex, window);
+    checkArgument(
+        window.firstPeriodIndex == window.lastPeriodIndex,
+        "Only single-period Timelines are supported.");
+    long contentDurationUs = timeline.getPeriod(window.firstPeriodIndex, period).durationUs;
     contentDurationMs = Util.usToMs(contentDurationUs);
     if (contentDurationUs != adPlaybackState.contentDurationUs) {
       adPlaybackState = adPlaybackState.withContentDurationUs(contentDurationUs);

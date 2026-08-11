@@ -28,10 +28,8 @@ import static androidx.media3.test.utils.FormatSupportAssumptions.assumeFormatsS
 import static androidx.media3.test.utils.HdrCapabilitiesUtil.assumeDeviceSupportsHdrEditing;
 import static androidx.media3.test.utils.TestUtil.assertBitmapsAreSimilar;
 import static androidx.media3.test.utils.TestUtil.retrieveTrackFormat;
-import static androidx.media3.transformer.GlFrameProcessorTestUtil.closeTestingGlResources;
 import static com.google.common.base.Preconditions.checkNotNull;
 import static com.google.common.truth.Truth.assertThat;
-import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.junit.Assume.assumeFalse;
 
@@ -39,39 +37,26 @@ import android.content.Context;
 import android.graphics.Bitmap;
 import android.net.Uri;
 import android.os.Build;
-import androidx.annotation.Nullable;
 import androidx.media3.common.C;
-import androidx.media3.common.GlObjectsProvider;
 import androidx.media3.common.MediaItem;
 import androidx.media3.common.MimeTypes;
-import androidx.media3.common.util.GlUtil.GlException;
 import androidx.media3.common.util.Log;
 import androidx.media3.common.util.Util;
-import androidx.media3.effect.DefaultGlFrameProcessor;
-import androidx.media3.effect.DefaultGlObjectsProvider;
-import androidx.media3.effect.DefaultHardwareBufferEffectsPipeline;
-import androidx.media3.effect.FrameProcessorUtils;
-import androidx.media3.effect.SimpleGlFrameProcessor;
-import androidx.media3.effect.ndk.HardwareBufferJni;
 import androidx.media3.inspector.frame.FrameExtractor;
+import androidx.media3.transformer.AndroidTestUtil;
 import androidx.media3.transformer.AndroidTestUtil.ForceEncodeEncoderFactory;
 import androidx.media3.transformer.EditedMediaItem;
 import androidx.media3.transformer.ExportTestResult;
-import androidx.media3.transformer.FrameWriterToHardwareBufferFrameQueueAdapter;
-import androidx.media3.transformer.PacketConsumerToFrameProcessorAdapter;
+import androidx.media3.transformer.GlFrameProcessorTestRule;
 import androidx.media3.transformer.Transformer;
 import androidx.media3.transformer.TransformerAndroidTestRunner;
 import androidx.test.core.app.ApplicationProvider;
 import androidx.test.filters.SdkSuppress;
 import com.google.common.collect.ImmutableList;
-import com.google.common.util.concurrent.ListeningExecutorService;
-import com.google.common.util.concurrent.MoreExecutors;
 import java.io.OutputStream;
 import java.lang.reflect.Method;
 import java.nio.file.Files;
 import java.nio.file.Paths;
-import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
-import org.junit.After;
 import org.junit.Before;
 import org.junit.Ignore;
 import org.junit.Rule;
@@ -96,66 +81,29 @@ public final class TranscodeQualityTest {
   private static final long TEST_TIMEOUT_MS = isRunningOnEmulator() ? 20_000 : 10_000;
 
   private static final String LEGACY = "legacy";
-  private static final String PACKET_CONSUMER_NDK = "packet_consumer_ndk";
-  private static final String FRAME_PROCESSOR_ADAPTER_NDK = "frame_processor_adapter_ndk";
-  private static final String FRAME_PROCESSOR_NDK = "frame_processor_ndk";
   private static final String DEFAULT_GL_FRAME_PROCESSOR_NDK = "default_gl_frame_processor_ndk";
-  private static final int FRAME_PROCESSOR_MIN_SDK = 28;
 
   @Rule public final TestName testName = new TestName();
 
   @Parameters(name = "{0}")
   public static ImmutableList<String> params() {
-    if (SDK_INT >= FRAME_PROCESSOR_MIN_SDK) {
-      return ImmutableList.of(
-          LEGACY,
-          PACKET_CONSUMER_NDK,
-          FRAME_PROCESSOR_ADAPTER_NDK,
-          FRAME_PROCESSOR_NDK,
-          DEFAULT_GL_FRAME_PROCESSOR_NDK);
+    if (SDK_INT >= AndroidTestUtil.HARDWARE_BUFFER_FRAME_PROCESSOR_MIN_SDK) {
+      return ImmutableList.of(LEGACY, DEFAULT_GL_FRAME_PROCESSOR_NDK);
     }
     return ImmutableList.of(LEGACY);
   }
 
   @Parameter public String mode;
 
-  private @MonotonicNonNull ListeningExecutorService glExecutorService;
-  private @MonotonicNonNull GlObjectsProvider glObjectsProvider;
+  @Rule
+  public final GlFrameProcessorTestRule glFrameProcessorTestRule =
+      new GlFrameProcessorTestRule(TEST_TIMEOUT_MS);
+
   private String testId;
 
   @Before
   public void setUp() throws Exception {
     testId = testName.getMethodName();
-    glExecutorService =
-        MoreExecutors.listeningDecorator(Util.newSingleThreadExecutor("PacketProcessor:Effect"));
-    if (mode.equals(DEFAULT_GL_FRAME_PROCESSOR_NDK)) {
-      glObjectsProvider = new DefaultGlObjectsProvider();
-      glExecutorService
-          .submit(
-              () -> {
-                try {
-                  FrameProcessorUtils.setupOpenGl(checkNotNull(glObjectsProvider));
-                } catch (GlException e) {
-                  throw new AssertionError(e);
-                }
-              })
-          .get(TEST_TIMEOUT_MS, MILLISECONDS);
-    }
-  }
-
-  @After
-  public void tearDown() {
-    @Nullable Exception releasingException = null;
-    if (mode.equals(DEFAULT_GL_FRAME_PROCESSOR_NDK)) {
-      releasingException =
-          closeTestingGlResources(glExecutorService, glObjectsProvider, TEST_TIMEOUT_MS);
-    }
-    if (glExecutorService != null) {
-      glExecutorService.shutdown();
-    }
-    if (releasingException != null) {
-      throw new AssertionError(releasingException);
-    }
   }
 
   @Test
@@ -222,12 +170,8 @@ public final class TranscodeQualityTest {
   @SdkSuppress(minSdkVersion = 34) // HDR Bitmap extraction requires API 34+.
   public void transcode_hlg10_outputsHlg() throws Exception {
     Context context = ApplicationProvider.getApplicationContext();
-    // TODO: b/286211012 - Enable once DefaultHardwareBufferEffectsPipeline supports HDR.
-    assumeFalse(
-        mode.equals(PACKET_CONSUMER_NDK)
-            || mode.equals(FRAME_PROCESSOR_ADAPTER_NDK)
-            || mode.equals(FRAME_PROCESSOR_NDK)
-            || mode.equals(DEFAULT_GL_FRAME_PROCESSOR_NDK));
+    // TODO: b/286211012 - Enable once DefaultGlFrameProcessor supports HDR.
+    assumeFalse(mode.equals(DEFAULT_GL_FRAME_PROCESSOR_NDK));
     assumeDeviceSupportsHdrEditing(testId, MP4_ASSET_COLOR_TEST_1080P_HLG10.videoFormat);
     assumeFormatsSupported(
         context,
@@ -266,8 +210,6 @@ public final class TranscodeQualityTest {
   @Test
   public void transcode_rotated270_outputsRotated270() throws Exception {
     Context context = ApplicationProvider.getApplicationContext();
-    // TODO: b/530927743 - Enable after rotation handling is fixed.
-    assumeFalse(mode.equals(FRAME_PROCESSOR_NDK));
     assumeFormatsSupported(
         context,
         testId,
@@ -298,39 +240,11 @@ public final class TranscodeQualityTest {
   }
 
   private Transformer.Builder createBuilder(Context context, String mode) {
-    if (SDK_INT < FRAME_PROCESSOR_MIN_SDK) {
+    if (SDK_INT < AndroidTestUtil.HARDWARE_BUFFER_FRAME_PROCESSOR_MIN_SDK) {
       return new Transformer.Builder(context);
     }
-    if (mode.equals(PACKET_CONSUMER_NDK)) {
-      return new Transformer.Builder(context)
-          .setNativeHardwareBufferHelpers(HardwareBufferJni.INSTANCE)
-          .setHardwareBufferEffectsPipeline(
-              DefaultHardwareBufferEffectsPipeline.create(context, HardwareBufferJni.INSTANCE));
-    } else if (mode.equals(FRAME_PROCESSOR_ADAPTER_NDK)) {
-      DefaultHardwareBufferEffectsPipeline pipeline =
-          DefaultHardwareBufferEffectsPipeline.create(context, HardwareBufferJni.INSTANCE);
-      return new Transformer.Builder(context)
-          .setNativeHardwareBufferHelpers(HardwareBufferJni.INSTANCE)
-          .setFrameProcessorFactory(
-              (output, listenerExecutor, listener) -> {
-                pipeline.setRenderOutput(new FrameWriterToHardwareBufferFrameQueueAdapter(output));
-                return new PacketConsumerToFrameProcessorAdapter(
-                    pipeline, listenerExecutor, listener);
-              });
-    } else if (mode.equals(FRAME_PROCESSOR_NDK)) {
-      return new Transformer.Builder(context)
-          .setNativeHardwareBufferHelpers(HardwareBufferJni.INSTANCE)
-          .setFrameProcessorFactory(
-              new SimpleGlFrameProcessor.Factory(context, HardwareBufferJni.INSTANCE));
-    } else if (mode.equals(DEFAULT_GL_FRAME_PROCESSOR_NDK)) {
-      return new Transformer.Builder(context)
-          .setNativeHardwareBufferHelpers(HardwareBufferJni.INSTANCE)
-          .setFrameProcessorFactory(
-              new DefaultGlFrameProcessor.Factory(
-                  context,
-                  checkNotNull(glObjectsProvider),
-                  HardwareBufferJni.INSTANCE,
-                  checkNotNull(glExecutorService)));
+    if (mode.equals(DEFAULT_GL_FRAME_PROCESSOR_NDK)) {
+      return glFrameProcessorTestRule.createTransformerBuilder(context);
     }
     return new Transformer.Builder(context);
   }
