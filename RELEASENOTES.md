@@ -78,6 +78,7 @@
         samples are written.
 *   IMA extension:
 *   Session:
+<<<<<<< HEAD
 *   UI:
     *   Introduce `PresentationState.videoAspectRatio` and make
         `Modifier.resizeWithContentScale` take `aspectRatio: Float?` instead of
@@ -86,6 +87,16 @@
         `media3-ui-compose` module for listening to player's current cues.
     *   Add scrubbing mode support to `ProgressSlider` if it is based on
         `ExoPlayer` or `CompositionPlayer`.
+=======
+    *   Fix double-downscaling of artwork in `MediaSession` when the image size
+        is close to the platform limit, resolving blurriness in notifications
+        ([#3134](https://github.com/androidx/media/issues/3134)).
+    *   Fix `ForegroundServiceStartNotAllowedException` crash in
+        `MediaNotificationManager` when an asynchronous artwork bitmap load
+        callback attempts to start the foreground service while the app is in
+        the background ([#3270](https://github.com/androidx/media/issues/3270)).
+*   UI:
+>>>>>>> parent of 58f500fa66 (Map and propagate Timeline UIDs across the IPC boundary)
 *   Downloads:
 *   OkHttp extension:
 *   Cronet extension:

@@ -29,7 +29,6 @@ import androidx.compose.ui.test.v2.runComposeUiTest
 import androidx.media3.common.C
 import androidx.media3.common.Format
 import androidx.media3.common.ForwardingPlayer
-import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaLibraryInfo
 import androidx.media3.common.MimeTypes.AUDIO_AAC
 import androidx.media3.common.MimeTypes.TEXT_VTT
@@ -43,6 +42,7 @@ import androidx.media3.common.VideoSize
 import androidx.media3.test.utils.FakePlayer
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.google.common.truth.Truth.assertThat
+import org.junit.Assert.assertThrows
 import org.junit.Test
 import org.junit.runner.RunWith
 
@@ -312,45 +312,47 @@ class PresentationStateTest {
   }
 
   @Test
-  fun timelineChanged_differentWindow_coversSurface() = runComposeUiTest {
-    val group =
-      Tracks.Group(
-        /* mediaTrackGroup = */ TrackGroup(Format.Builder().setSampleMimeType(VIDEO_VP9).build()),
-        /* adaptiveSupported = */ true,
-        /* trackSupport = */ intArrayOf(C.FORMAT_HANDLED),
-        /* trackSelected = */ booleanArrayOf(true),
-      )
-    val validTracks = Tracks(listOf(group))
-    val player =
-      FakePlayer(
-        playlist =
-          listOf(
-            MediaItemData.Builder("uid1").setTracks(Tracks.EMPTY).build(),
-            MediaItemData.Builder("uid2").setTracks(validTracks).build(),
-          )
-      )
-    var remotableTimeline: Timeline? = null
-    val presentationPlayer =
-      object : ForwardingPlayer(player) {
-        override fun getCurrentTimeline() = remotableTimeline ?: super.getCurrentTimeline()
-      }
-    lateinit var state: PresentationState
-    setContent { state = rememberPresentationState(presentationPlayer) }
-    waitForIdle()
-    assertThat(state.coverSurface).isTrue()
+  fun tracksChanged_withTimelineWithoutUidLookupSupport_throwsUnsupportedOperationException() =
+    runComposeUiTest {
+      val group =
+        Tracks.Group(
+          /* mediaTrackGroup = */ TrackGroup(Format.Builder().setSampleMimeType(VIDEO_VP9).build()),
+          /* adaptiveSupported = */ true,
+          /* trackSupport = */ intArrayOf(C.FORMAT_HANDLED),
+          /* trackSelected = */ booleanArrayOf(true),
+        )
+      val validTracks = Tracks(listOf(group))
+      val player =
+        FakePlayer(
+          playlist =
+            listOf(
+              MediaItemData.Builder("uid1").setTracks(Tracks.EMPTY).build(),
+              MediaItemData.Builder("uid2").setTracks(validTracks).build(),
+            )
+        )
+      var remotableTimeline: Timeline? = null
+      val presentationPlayer =
+        object : ForwardingPlayer(player) {
+          override fun getCurrentTimeline() = remotableTimeline ?: super.getCurrentTimeline()
+        }
+      lateinit var state: PresentationState
+      setContent { state = rememberPresentationState(presentationPlayer) }
+      waitForIdle()
+      assertThat(state.coverSurface).isTrue()
 
-    player.seekToNext()
-    player.renderFirstFrame(true)
-    waitForIdle()
-    assertThat(state.coverSurface).isFalse()
+      player.seekToNext()
+      player.renderFirstFrame(true)
+      waitForIdle()
+      assertThat(state.coverSurface).isFalse()
 
-    // Enable remotable timeline, strips period and window UIDs
-    remotableTimeline =
-      Timeline.fromBundle(
-        player.currentTimeline.toBundle(MediaLibraryInfo.INTERFACE_VERSION),
-        MediaLibraryInfo.INTERFACE_VERSION,
-      )
+      // Enable remotable timeline, strips period and window UIDs
+      remotableTimeline =
+        Timeline.fromBundle(
+          player.currentTimeline.toBundle(MediaLibraryInfo.INTERFACE_VERSION),
+          MediaLibraryInfo.INTERFACE_VERSION,
+        )
 
+<<<<<<< HEAD
     // Seek back to 0 (no tracks, different media item) -> should cover surface
     player.seekToPrevious().also { waitForIdle() }
 
@@ -617,4 +619,11 @@ class PresentationStateTest {
     // Audio and text -> shutter should be immediately open to show the subtitles over black
     assertThat(state.coverSurface).isFalse()
   }
+=======
+      // Seek back to 0 (no tracks, different media item) -> should cover surface
+      // BUG: throws UnsupportedOperationException
+      player.seekToPrevious()
+      assertThrows(UnsupportedOperationException::class.java) { waitForIdle() }
+    }
+>>>>>>> parent of 58f500fa66 (Map and propagate Timeline UIDs across the IPC boundary)
 }

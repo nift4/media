@@ -34,13 +34,10 @@ import androidx.media3.common.util.UnstableApi;
 import androidx.media3.common.util.Util;
 import com.google.common.base.Function;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.Maps;
 import com.google.errorprone.annotations.CanIgnoreReturnValue;
 import com.google.errorprone.annotations.InlineMe;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.Objects;
 import org.checkerframework.checker.nullness.qual.NonNull;
 
@@ -164,6 +161,8 @@ public abstract class Timeline {
      * A {@link #uid} for a window that must be used for single-window {@link Timeline Timelines}.
      */
     public static final Object SINGLE_WINDOW_UID = new Object();
+
+    private static final Object FAKE_WINDOW_UID = new Object();
 
     private static final MediaItem PLACEHOLDER_MEDIA_ITEM =
         new MediaItem.Builder()
@@ -438,7 +437,6 @@ public abstract class Timeline {
     private static final String FIELD_FIRST_PERIOD_INDEX = Util.intToStringMaxRadix(11);
     private static final String FIELD_LAST_PERIOD_INDEX = Util.intToStringMaxRadix(12);
     private static final String FIELD_POSITION_IN_FIRST_PERIOD_US = Util.intToStringMaxRadix(13);
-    private static final String FIELD_UID = Util.intToStringMaxRadix(14);
 
     /**
      * @deprecated Use {@link #toBundle(int)} instead.
@@ -503,9 +501,6 @@ public abstract class Timeline {
       if (positionInFirstPeriodUs != 0) {
         bundle.putLong(FIELD_POSITION_IN_FIRST_PERIOD_US, positionInFirstPeriodUs);
       }
-      if (uid instanceof String) {
-        bundle.putString(FIELD_UID, (String) uid);
-      }
       return bundle;
     }
 
@@ -554,14 +549,10 @@ public abstract class Timeline {
       int lastPeriodIndex = bundle.getInt(FIELD_LAST_PERIOD_INDEX, /* defaultValue= */ 0);
       long positionInFirstPeriodUs =
           bundle.getLong(FIELD_POSITION_IN_FIRST_PERIOD_US, /* defaultValue= */ 0);
-      @Nullable Object uid = bundle.getString(FIELD_UID);
-      if (uid == null) {
-        uid = SINGLE_WINDOW_UID;
-      }
 
       Window window = new Window();
       window.set(
-          uid,
+          FAKE_WINDOW_UID,
           mediaItem,
           /* manifest= */ null,
           presentationStartTimeMs,
@@ -937,8 +928,6 @@ public abstract class Timeline {
     private static final String FIELD_POSITION_IN_WINDOW_US = Util.intToStringMaxRadix(2);
     private static final String FIELD_PLACEHOLDER = Util.intToStringMaxRadix(3);
     private static final String FIELD_AD_PLAYBACK_STATE = Util.intToStringMaxRadix(4);
-    private static final String FIELD_ID = Util.intToStringMaxRadix(5);
-    private static final String FIELD_UID = Util.intToStringMaxRadix(6);
 
     /**
      * @deprecated Use {@link #toBundle(int)} instead.
@@ -976,12 +965,6 @@ public abstract class Timeline {
       if (!adPlaybackState.equals(AdPlaybackState.NONE)) {
         bundle.putBundle(FIELD_AD_PLAYBACK_STATE, adPlaybackState.toBundle(interfaceVersion));
       }
-      if (id instanceof String) {
-        bundle.putString(FIELD_ID, (String) id);
-      }
-      if (uid instanceof String) {
-        bundle.putString(FIELD_UID, (String) uid);
-      }
       return bundle;
     }
 
@@ -1013,12 +996,15 @@ public abstract class Timeline {
               ? AdPlaybackState.fromBundle(adPlaybackStateBundle, interfaceVersion)
               : AdPlaybackState.NONE;
 
-      @Nullable Object id = bundle.getString(FIELD_ID);
-      @Nullable Object uid = bundle.getString(FIELD_UID);
-
       Period period = new Period();
       period.set(
-          id, uid, windowIndex, durationUs, positionInWindowUs, adPlaybackState, isPlaceholder);
+          /* id= */ null,
+          /* uid= */ null,
+          windowIndex,
+          durationUs,
+          positionInWindowUs,
+          adPlaybackState,
+          isPlaceholder);
       return period;
     }
   }
@@ -1476,7 +1462,7 @@ public abstract class Timeline {
     int periodCount = getPeriodCount();
     Period period = new Period();
     for (int i = 0; i < periodCount; i++) {
-      periodBundles.add(getPeriod(i, period, /* setIds= */ true).toBundle(interfaceVersion));
+      periodBundles.add(getPeriod(i, period, /* setIds= */ false).toBundle(interfaceVersion));
     }
 
     int[] shuffledWindowIndices = new int[windowCount];
@@ -1546,7 +1532,6 @@ public abstract class Timeline {
         fromBundleListRetriever(
             item -> Period.fromBundle(item, interfaceVersion), bundle.getBinder(FIELD_PERIODS));
     @Nullable int[] shuffledWindowIndices = bundle.getIntArray(FIELD_SHUFFLED_WINDOW_INDICES);
-
     return new RemotableTimeline(
         windows,
         periods,
@@ -1582,67 +1567,17 @@ public abstract class Timeline {
     private final ImmutableList<Period> periods;
     private final int[] shuffledWindowIndices;
     private final int[] windowIndicesInShuffled;
-    private final ImmutableMap<Object, Integer> uidToIndexMap;
 
     public RemotableTimeline(
         ImmutableList<Window> windows, ImmutableList<Period> periods, int[] shuffledWindowIndices) {
       checkArgument(windows.size() == shuffledWindowIndices.length);
+      this.windows = windows;
+      this.periods = periods;
       this.shuffledWindowIndices = shuffledWindowIndices;
       windowIndicesInShuffled = new int[shuffledWindowIndices.length];
       for (int i = 0; i < shuffledWindowIndices.length; i++) {
         windowIndicesInShuffled[shuffledWindowIndices[i]] = i;
       }
-      ImmutableList.Builder<Window> sanitizedWindows = ImmutableList.builder();
-      for (int i = 0; i < windows.size(); i++) {
-        Window w = windows.get(i);
-        if (windows.size() > 1 && Objects.equals(w.uid, Window.SINGLE_WINDOW_UID)) {
-          Window newWindow = new Window();
-          newWindow.set(
-              new Object(),
-              w.mediaItem,
-              w.manifest,
-              w.presentationStartTimeMs,
-              w.windowStartTimeMs,
-              w.elapsedRealtimeEpochOffsetMs,
-              w.isSeekable,
-              w.isDynamic,
-              w.liveConfiguration,
-              w.defaultPositionUs,
-              w.durationUs,
-              w.firstPeriodIndex,
-              w.lastPeriodIndex,
-              w.positionInFirstPeriodUs);
-          newWindow.isPlaceholder = w.isPlaceholder;
-          newWindow.tag = w.tag;
-          w = newWindow;
-        }
-        sanitizedWindows.add(w);
-      }
-      this.windows = sanitizedWindows.build();
-      ImmutableList.Builder<Period> sanitizedPeriods = ImmutableList.builder();
-      Map<Object, Integer> uidToIndexMap = Maps.newHashMapWithExpectedSize(periods.size());
-      for (int i = 0; i < periods.size(); i++) {
-        Period p = periods.get(i);
-        if (p.uid == null) {
-          Period newPeriod = new Period();
-          newPeriod.set(
-              p.id,
-              new Object(),
-              p.windowIndex,
-              p.durationUs,
-              p.positionInWindowUs,
-              p.adPlaybackState,
-              p.isPlaceholder);
-          p = newPeriod;
-        }
-        sanitizedPeriods.add(p);
-        Object uid = checkNotNull(p.uid);
-        if (!uidToIndexMap.containsKey(uid)) {
-          uidToIndexMap.put(uid, i);
-        }
-      }
-      this.periods = sanitizedPeriods.build();
-      this.uidToIndexMap = ImmutableMap.copyOf(uidToIndexMap);
     }
 
     @Override
@@ -1743,13 +1678,12 @@ public abstract class Timeline {
 
     @Override
     public int getIndexOfPeriod(Object uid) {
-      Integer index = uidToIndexMap.get(uid);
-      return index == null ? C.INDEX_UNSET : index;
+      throw new UnsupportedOperationException();
     }
 
     @Override
     public Object getUidOfPeriod(int periodIndex) {
-      return checkNotNull(periods.get(periodIndex).uid);
+      throw new UnsupportedOperationException();
     }
   }
 }
