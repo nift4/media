@@ -18,6 +18,7 @@ package androidx.media3.muxer;
 import static androidx.media3.muxer.MuxerTestUtil.feedInputDataToMuxer;
 import static com.google.common.base.Preconditions.checkNotNull;
 import static com.google.common.truth.Truth.assertThat;
+import static org.junit.Assert.assertThrows;
 
 import android.content.Context;
 import androidx.media3.common.C;
@@ -421,5 +422,59 @@ public class FragmentedMp4MuxerEndToEndTest {
     assertThat(extractedFormat.sampleMimeType).isEqualTo(MimeTypes.AUDIO_E_AC3);
     assertThat(extractedFormat.initializationData).hasSize(1);
     assertThat(extractedFormat.initializationData.get(0)).isEqualTo(expectedDec3Payload);
+  }
+
+  @Test
+  public void writeFragmentedMp4File_onlyEndOfStreamSample_doesNotCrash() throws Exception {
+    String outputFilePath = temporaryFolder.newFile().getPath();
+    Format format = new Format.Builder().setSampleMimeType("xyz").build();
+    try (FragmentedMp4Muxer muxer =
+        new FragmentedMp4Muxer.Builder(new FileOutputStream(outputFilePath).getChannel()).build()) {
+      int trackId = muxer.addTrack(format);
+      BufferInfo endOfStreamBufferInfo =
+          new BufferInfo(
+              /* presentationTimeUs= */ 2_000_000L, /* size= */ 0, C.BUFFER_FLAG_END_OF_STREAM);
+      muxer.writeSampleData(trackId, ByteBuffer.allocate(0), endOfStreamBufferInfo);
+    }
+
+    byte[] outputFileBytes = TestUtil.getByteArrayFromFilePath(outputFilePath);
+    assertThat(outputFileBytes).isEmpty();
+  }
+
+  @Test
+  public void addTrack_afterClose_throws() throws Exception {
+    FragmentedMp4Muxer muxer =
+        new FragmentedMp4Muxer.Builder(new FileOutputStream(temporaryFolder.newFile()).getChannel())
+            .build();
+    muxer.close();
+    Format format = new Format.Builder().setSampleMimeType(MimeTypes.VIDEO_H264).build();
+
+    assertThrows(IllegalStateException.class, () -> muxer.addTrack(format));
+  }
+
+  @Test
+  public void writeSampleData_afterClose_throws() throws Exception {
+    FragmentedMp4Muxer muxer =
+        new FragmentedMp4Muxer.Builder(new FileOutputStream(temporaryFolder.newFile()).getChannel())
+            .build();
+    Format format = new Format.Builder().setSampleMimeType(MimeTypes.VIDEO_H264).build();
+    int trackId = muxer.addTrack(format);
+    muxer.close();
+    BufferInfo bufferInfo =
+        new BufferInfo(/* presentationTimeUs= */ 0, /* size= */ 0, /* flags= */ 0);
+    ByteBuffer sampleData = ByteBuffer.allocate(0);
+
+    assertThrows(
+        IllegalStateException.class, () -> muxer.writeSampleData(trackId, sampleData, bufferInfo));
+  }
+
+  @Test
+  public void close_afterClose_throws() throws Exception {
+    FragmentedMp4Muxer muxer =
+        new FragmentedMp4Muxer.Builder(new FileOutputStream(temporaryFolder.newFile()).getChannel())
+            .build();
+    muxer.close();
+
+    assertThrows(IllegalStateException.class, muxer::close);
   }
 }

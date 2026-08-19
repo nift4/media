@@ -15,20 +15,20 @@
  */
 package androidx.media3.effect;
 
-import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.base.Preconditions.checkNotNull;
 import static com.google.common.base.Preconditions.checkState;
 
 import android.content.Context;
 import android.opengl.GLES20;
 import androidx.annotation.Nullable;
 import androidx.media3.common.C;
+import androidx.media3.common.C.ColorTransfer;
 import androidx.media3.common.ColorInfo;
 import androidx.media3.common.VideoFrameProcessingException;
 import androidx.media3.common.util.GlProgram;
 import androidx.media3.common.util.GlUtil;
 import androidx.media3.common.util.GlUtil.GlException;
 import androidx.media3.common.util.Log;
-import androidx.media3.common.util.Util;
 import java.io.IOException;
 
 /**
@@ -44,10 +44,25 @@ import java.io.IOException;
 /* package */ final class GlTextureCopier {
 
   private static final String TAG = "GlTextureCopier";
+  // YUV to RGB color transform coefficients can be calculated from the BT.2020 specification, by
+  // inverting the RGB to YUV equations, and scaling for limited range.
+  // https://www.itu.int/dms_pubrec/itu-r/rec/bt/R-REC-BT.2020-2-201510-I!!PDF-E.pdf
+  private static final float[] BT2020_FULL_RANGE_YUV_TO_RGB_COLOR_TRANSFORM_MATRIX = {
+    1.0000f, 1.0000f, 1.0000f,
+    0.0000f, -0.1646f, 1.8814f,
+    1.4746f, -0.5714f, 0.0000f
+  };
+  private static final float[] BT2020_LIMITED_RANGE_YUV_TO_RGB_COLOR_TRANSFORM_MATRIX = {
+    1.1689f, 1.1689f, 1.1689f,
+    0.0000f, -0.1881f, 2.1502f,
+    1.6853f, -0.6530f, 0.0000f,
+  };
 
   private final Context context;
   @Nullable private GlProgram sdrExternalCopyGlProgram;
   @Nullable private GlProgram sdrInternalCopyGlProgram;
+  @Nullable private GlProgram hdrExternalCopyGlProgram;
+  @Nullable private GlProgram hdrInternalCopyGlProgram;
   private int fboId = C.INDEX_UNSET;
 
   public GlTextureCopier(Context context) {
@@ -78,46 +93,42 @@ import java.io.IOException;
       float[] textureTransformMatrix,
       boolean isExternalTexture)
       throws VideoFrameProcessingException {
-    boolean isHdr =
-        ColorInfo.isTransferHdr(inputColorInfo)
-            || ColorInfo.isTransferHdr(requestedOutputColorInfo);
+    boolean isInputHdr = ColorInfo.isWideColorGamut(inputColorInfo);
+    boolean isOutputHdr = ColorInfo.isWideColorGamut(requestedOutputColorInfo);
+    boolean applyHdrToSdrToneMapping = isInputHdr && !isOutputHdr;
 
-    // TODO: b/517525358 - Remove this check once HDR color conversion for external textures is
-    //  implemented.
-    checkArgument(
-        !isExternalTexture || !isHdr || inputColorInfo.equals(requestedOutputColorInfo),
-        Util.formatInvariant(
-            "Color conversion for HDR external textures is not supported yet. Input: %s, Output:"
-                + " %s",
-            inputColorInfo, requestedOutputColorInfo));
     try {
       GlProgram copyGlProgram;
-      if (isExternalTexture) {
-        if (sdrExternalCopyGlProgram == null) {
-          sdrExternalCopyGlProgram =
-              new GlProgram(
-                  context,
-                  R.raw.vertex_shader_transformation_es2,
-                  R.raw.fragment_shader_transformation_sdr_external_es2);
-          setupCommonAttributesAndUniforms(sdrExternalCopyGlProgram);
+      if (isInputHdr) {
+        if (isExternalTexture) {
+          setupExternalHdrGlProgram(requestedOutputColorInfo);
+          copyGlProgram = checkNotNull(hdrExternalCopyGlProgram);
+          copyGlProgram.setFloatsUniform(
+              "uYuvToRgbColorTransform",
+              inputColorInfo.colorRange == C.COLOR_RANGE_LIMITED
+                  // HDR inputs always use BT.2020 color gamut.
+                  ? BT2020_LIMITED_RANGE_YUV_TO_RGB_COLOR_TRANSFORM_MATRIX
+                  : BT2020_FULL_RANGE_YUV_TO_RGB_COLOR_TRANSFORM_MATRIX);
+        } else {
+          // Internal HDR texture
+          setupInternalHdrGlProgram(requestedOutputColorInfo);
+          copyGlProgram = checkNotNull(checkNotNull(hdrInternalCopyGlProgram));
         }
-        copyGlProgram = sdrExternalCopyGlProgram;
-      } else {
-        if (sdrInternalCopyGlProgram == null) {
-          sdrInternalCopyGlProgram =
-              new GlProgram(
-                  context,
-                  R.raw.vertex_shader_transformation_es2,
-                  R.raw.fragment_shader_transformation_sdr_internal_es2);
-          setupCommonAttributesAndUniforms(sdrInternalCopyGlProgram);
-          sdrInternalCopyGlProgram.setIntUniform("uSdrWorkingColorSpace", 0);
-        }
-        copyGlProgram = sdrInternalCopyGlProgram;
-        copyGlProgram.setIntUniform("uInputColorTransfer", inputColorInfo.colorTransfer);
-        copyGlProgram.setIntUniform("uOutputColorTransfer", requestedOutputColorInfo.colorTransfer);
-      }
-      copyGlProgram.setIntUniform("uOutputColorTransfer", requestedOutputColorInfo.colorTransfer);
 
+        copyGlProgram.setIntUniform("uApplyHdrToSdrToneMapping", applyHdrToSdrToneMapping ? 1 : 0);
+        copyGlProgram.setIntUniform("uInputColorTransfer", inputColorInfo.colorTransfer);
+      } else {
+        // SDR input
+        if (isExternalTexture) {
+          setupExternalSdrGlProgram(requestedOutputColorInfo);
+          copyGlProgram = checkNotNull(sdrExternalCopyGlProgram);
+        } else {
+          // Internal SDR texture
+          setupInternalSdrGlProgram(requestedOutputColorInfo);
+          copyGlProgram = checkNotNull(sdrInternalCopyGlProgram);
+          copyGlProgram.setIntUniform("uInputColorTransfer", inputColorInfo.colorTransfer);
+        }
+      }
       copyGlProgram.setFloatsUniform("uTexTransformationMatrix", textureTransformMatrix);
 
       if (fboId == C.INDEX_UNSET) {
@@ -170,6 +181,32 @@ import java.io.IOException;
       }
       sdrInternalCopyGlProgram = null;
     }
+    if (hdrExternalCopyGlProgram != null) {
+      try {
+        hdrExternalCopyGlProgram.delete();
+      } catch (GlException e) {
+        if (firstException == null) {
+          firstException = e;
+        } else {
+          Log.w(TAG, "Failed to delete hdrExternalCopyGlProgram", e);
+          firstException.addSuppressed(e);
+        }
+      }
+      hdrExternalCopyGlProgram = null;
+    }
+    if (hdrInternalCopyGlProgram != null) {
+      try {
+        hdrInternalCopyGlProgram.delete();
+      } catch (GlException e) {
+        if (firstException == null) {
+          firstException = e;
+        } else {
+          Log.w(TAG, "Failed to delete hdrInternalCopyGlProgram", e);
+          firstException.addSuppressed(e);
+        }
+      }
+      hdrInternalCopyGlProgram = null;
+    }
     if (fboId != C.INDEX_UNSET) {
       try {
         GlUtil.deleteFbo(fboId);
@@ -188,6 +225,67 @@ import java.io.IOException;
     }
   }
 
+  private void setupExternalHdrGlProgram(ColorInfo outputColorInfo)
+      throws GlException, IOException {
+    checkState(isOpenGl3Supported() && GlUtil.isYuvTargetExtensionSupported());
+    if (hdrExternalCopyGlProgram == null) {
+      hdrExternalCopyGlProgram =
+          new GlProgram(
+              context,
+              R.raw.vertex_shader_transformation_es3,
+              R.raw.fragment_shader_transformation_external_yuv_es3);
+      setupCommonAttributesAndUniforms(hdrExternalCopyGlProgram);
+
+      hdrExternalCopyGlProgram.setIntUniform(
+          "uOutputColorTransfer", resolveHdrOutputColorTransfer(outputColorInfo));
+    }
+  }
+
+  private void setupInternalHdrGlProgram(ColorInfo outputColorInfo)
+      throws GlException, IOException {
+    checkState(isOpenGl3Supported());
+    if (hdrInternalCopyGlProgram == null) {
+      hdrInternalCopyGlProgram =
+          new GlProgram(
+              context,
+              R.raw.vertex_shader_transformation_es3,
+              R.raw.fragment_shader_transformation_hdr_internal_es3);
+      setupCommonAttributesAndUniforms(hdrInternalCopyGlProgram);
+      hdrInternalCopyGlProgram.setIntUniform(
+          "uOutputColorTransfer", resolveHdrOutputColorTransfer(outputColorInfo));
+    }
+  }
+
+  private void setupInternalSdrGlProgram(ColorInfo outputColorInfo)
+      throws GlException, IOException {
+    if (sdrInternalCopyGlProgram == null) {
+      sdrInternalCopyGlProgram =
+          new GlProgram(
+              context,
+              R.raw.vertex_shader_transformation_es2,
+              R.raw.fragment_shader_transformation_sdr_internal_es2);
+      setupCommonAttributesAndUniforms(sdrInternalCopyGlProgram);
+      // WORKING_COLOR_SPACE_DEFAULT
+      sdrInternalCopyGlProgram.setIntUniform("uSdrWorkingColorSpace", 0);
+      sdrInternalCopyGlProgram.setIntUniform("uOutputColorTransfer", outputColorInfo.colorTransfer);
+    }
+  }
+
+  private void setupExternalSdrGlProgram(ColorInfo outputColorInfo)
+      throws GlException, IOException {
+    if (sdrExternalCopyGlProgram == null) {
+      sdrExternalCopyGlProgram =
+          new GlProgram(
+              context,
+              R.raw.vertex_shader_transformation_es2,
+              R.raw.fragment_shader_transformation_sdr_external_es2);
+      setupCommonAttributesAndUniforms(sdrExternalCopyGlProgram);
+      // WORKING_COLOR_SPACE_DEFAULT
+      sdrExternalCopyGlProgram.setIntUniform("uSdrWorkingColorSpace", 0);
+      sdrExternalCopyGlProgram.setIntUniform("uOutputColorTransfer", outputColorInfo.colorTransfer);
+    }
+  }
+
   private static void setupCommonAttributesAndUniforms(GlProgram glProgram) {
     glProgram.setBufferAttribute(
         "aFramePosition",
@@ -195,5 +293,18 @@ import java.io.IOException;
         GlUtil.HOMOGENEOUS_COORDINATE_VECTOR_SIZE);
     glProgram.setFloatsUniform("uTransformationMatrix", GlUtil.create4x4IdentityMatrix());
     glProgram.setFloatsUniform("uRgbMatrix", GlUtil.create4x4IdentityMatrix());
+  }
+
+  private static @ColorTransfer int resolveHdrOutputColorTransfer(ColorInfo outputColorInfo) {
+    return ColorInfo.isWideColorGamut(outputColorInfo)
+        ? outputColorInfo.colorTransfer
+        : outputColorInfo.colorTransfer == C.COLOR_TRANSFER_LINEAR
+            ? C.COLOR_TRANSFER_LINEAR
+            // TODO(b/545591397): Use sRGB instead of Gamma 2.2
+            : C.COLOR_TRANSFER_GAMMA_2_2;
+  }
+
+  private static boolean isOpenGl3Supported() throws GlException {
+    return GlUtil.getContextMajorVersion() >= 3;
   }
 }

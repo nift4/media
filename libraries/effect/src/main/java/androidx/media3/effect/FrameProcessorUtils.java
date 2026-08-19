@@ -15,21 +15,16 @@
  */
 package androidx.media3.effect;
 
-import static android.os.Build.VERSION.SDK_INT;
-import static com.google.common.base.Preconditions.checkState;
 import static com.google.common.util.concurrent.MoreExecutors.directExecutor;
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
 
 import android.hardware.HardwareBuffer;
-import android.hardware.SyncFence;
-import android.opengl.EGL14;
-import android.opengl.EGL15;
+import android.opengl.EGLContext;
 import android.opengl.EGLDisplay;
-import android.opengl.EGLExt;
-import android.opengl.EGLSync;
 import android.opengl.GLES20;
 import androidx.annotation.Nullable;
 import androidx.annotation.RequiresApi;
+import androidx.annotation.VisibleForTesting;
 import androidx.media3.common.C;
 import androidx.media3.common.GlObjectsProvider;
 import androidx.media3.common.VideoFrameProcessingException;
@@ -38,9 +33,9 @@ import androidx.media3.common.util.ExperimentalApi;
 import androidx.media3.common.util.GlUtil;
 import androidx.media3.common.util.GlUtil.GlException;
 import androidx.media3.common.util.Log;
+import androidx.media3.common.util.ThrowingRunnable;
 import androidx.media3.common.video.AsyncFrame;
 import androidx.media3.common.video.SyncFenceWrapper;
-import com.google.common.collect.ImmutableList;
 import com.google.common.util.concurrent.FutureCallback;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListeningExecutorService;
@@ -48,6 +43,7 @@ import java.time.Duration;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
 
+/** Utility methods for FrameProcessor implementations. */
 @ExperimentalApi // TODO: b/505721737 Remove once FrameProcessor is production ready.
 @RequiresApi(26)
 public final class FrameProcessorUtils {
@@ -85,17 +81,68 @@ public final class FrameProcessorUtils {
     }
   }
 
+  /** OpenGL ES 2.0 context created. */
+  public static final int OPEN_GL_VERSION_2 = 2;
+
+  /** 10-bit HDR-capable OpenGL ES 3.0 context created. */
+  public static final int OPEN_GL_VERSION_3 = 3;
+
   /**
-   * Sets up the OpenGL resources.
+   * Sets up the OpenGL context on the current thread.
    *
-   * <p>This method must run on the thread that owns the OpenGL context.
+   * <p>Attempts to create an OpenGL ES 3.0 context with 10-bit HDR configuration ({@link
+   * GlUtil#EGL_CONFIG_ATTRIBUTES_RGBA_1010102}) if surfaceless contexts are supported. This allows
+   * the pipeline to handle SDR and HDR contents without recreating the context.
+   *
+   * <p>Falls back to OpenGL ES 2.0 with {@link GlUtil#EGL_CONFIG_ATTRIBUTES_RGBA_8888} if
+   * surfaceless contexts are unsupported (e.g., on emulators) or if ES 3.0 context creation fails.
+   *
+   * @param glObjectsProvider The {@link GlObjectsProvider}.
+   * @return The created OpenGL version ({@link #OPEN_GL_VERSION_3} or {@link #OPEN_GL_VERSION_2}).
    */
-  public static void setupOpenGl(GlObjectsProvider glObjectsProvider) throws GlException {
+  public static int setupOpenGl(GlObjectsProvider glObjectsProvider) throws GlException {
+    return setupOpenGl(glObjectsProvider, GlUtil.isSurfacelessContextExtensionSupported());
+  }
+
+  @VisibleForTesting(otherwise = VisibleForTesting.PACKAGE_PRIVATE)
+  /* package */ static int setupOpenGl(
+      GlObjectsProvider glObjectsProvider, boolean isSurfacelessContextExtensionSupported)
+      throws GlException {
     EGLDisplay eglDisplay = GlUtil.getDefaultEglDisplay();
-    glObjectsProvider.createFocusedPlaceholderEglSurface(
+    // 10-bit contexts require EGL_KHR_surfaceless_context support because placeholder surfaces
+    // default to 8-bit RGBA_8888, which causes EGL_BAD_MATCH on non-surfaceless platforms (like
+    // emulators).
+    if (isSurfacelessContextExtensionSupported) {
+      EGLContext eglContext = null;
+      try {
+        eglContext =
+            glObjectsProvider.createEglContext(
+                eglDisplay, /* openGlVersion= */ 3, GlUtil.EGL_CONFIG_ATTRIBUTES_RGBA_1010102);
+        glObjectsProvider.createFocusedPlaceholderEglSurface(eglContext, eglDisplay);
+        return OPEN_GL_VERSION_3;
+      } catch (GlException e) {
+        Log.w(TAG, "Failed to create OpenGL ES 3.0 context or surface", e);
+        if (eglContext != null) {
+          GlUtil.destroyEglContext(eglDisplay, eglContext);
+        }
+      }
+    }
+
+    return setupOpenGl2(glObjectsProvider);
+  }
+
+  private static int setupOpenGl2(GlObjectsProvider glObjectsProvider) throws GlException {
+    EGLDisplay eglDisplay = GlUtil.getDefaultEglDisplay();
+    EGLContext eglContext =
         glObjectsProvider.createEglContext(
-            eglDisplay, /* openGlVersion= */ 2, GlUtil.EGL_CONFIG_ATTRIBUTES_RGBA_8888),
-        eglDisplay);
+            eglDisplay, /* openGlVersion= */ 2, GlUtil.EGL_CONFIG_ATTRIBUTES_RGBA_8888);
+    try {
+      glObjectsProvider.createFocusedPlaceholderEglSurface(eglContext, eglDisplay);
+      return OPEN_GL_VERSION_2;
+    } catch (GlException e) {
+      GlUtil.destroyEglContext(eglDisplay, eglContext);
+      throw e;
+    }
   }
 
   /**
@@ -170,54 +217,6 @@ public final class FrameProcessorUtils {
     boolean unused = jniWrapper.nativeDestroyEGLImage(eglDisplay, eglImageTextureWrapper.eglImage);
   }
 
-  /** Generates the requested number of native sync fences. Must be called on the GL thread. */
-  public static ImmutableList<SyncFenceWrapper> generateSyncFences(int count) throws GlException {
-    // TODO: b/505721737 - Move to utility class.
-    EGLDisplay eglDisplay = GlUtil.getDefaultEglDisplay();
-    String extensions = EGL14.eglQueryString(eglDisplay, EGL14.EGL_EXTENSIONS);
-    if (SDK_INT < 33 || !extensions.contains("EGL_ANDROID_native_fence_sync")) {
-      return ImmutableList.of();
-    }
-    EGLSync eglSync = EGL15.EGL_NO_SYNC;
-    ImmutableList.Builder<SyncFenceWrapper> fences = new ImmutableList.Builder<>();
-    try {
-      eglSync =
-          EGL15.eglCreateSync(
-              eglDisplay,
-              EGLExt.EGL_SYNC_NATIVE_FENCE_ANDROID,
-              /* attrib_list= */ new long[] {EGL14.EGL_NONE},
-              /* offset= */ 0);
-      GlUtil.checkEglException("eglCreateSync failed");
-      if (eglSync == EGL15.EGL_NO_SYNC) {
-        return ImmutableList.of();
-      }
-      SyncFence syncFence = EGLExt.eglDupNativeFenceFDANDROID(eglDisplay, eglSync);
-      GlUtil.checkEglException("eglDupNativeFenceFDANDROID failed");
-      if (!syncFence.isValid()) {
-        // Calling eglDupNativeFenceAndroid may produce an invalid fence the first time it
-        // is called. See b/18052459.
-        GLES20.glFlush();
-        syncFence = EGLExt.eglDupNativeFenceFDANDROID(eglDisplay, eglSync);
-        GlUtil.checkEglException("eglDupNativeFenceFDANDROID failed after glFlush");
-      }
-      if (!syncFence.isValid()) {
-        return ImmutableList.of();
-      }
-      fences.add(SyncFenceWrapper.of(syncFence));
-      for (int i = 0; i < count - 1; i++) {
-        SyncFence duplicatedFence = EGLExt.eglDupNativeFenceFDANDROID(eglDisplay, eglSync);
-        GlUtil.checkEglException("eglDupNativeFenceFDANDROID failed for input frame");
-        checkState(duplicatedFence.isValid());
-        fences.add(SyncFenceWrapper.of(duplicatedFence));
-      }
-
-    } finally {
-      EGL15.eglDestroySync(eglDisplay, eglSync);
-      GlUtil.checkEglException("eglDestroySync failed");
-    }
-    return fences.build();
-  }
-
   /**
    * Awaits the acquire fence on the {@link AsyncFrame}. Returns {@code true} if the fence was
    * signaled before the timeout, {@code false} otherwise.
@@ -256,12 +255,6 @@ public final class FrameProcessorUtils {
         directExecutor());
   }
 
-  /** A runnable that throws an exception. */
-  public interface ThrowingRunnable {
-    /** Runs the operation. */
-    void run() throws Exception;
-  }
-
   /**
    * Executes multiple throwing actions sequentially, ensuring all are run even if some fail.
    *
@@ -271,7 +264,7 @@ public final class FrameProcessorUtils {
    * @param actions The throwing actions to execute.
    * @throws VideoFrameProcessingException If any of the actions fail.
    */
-  public static void runAllAndAccumulateExceptions(ThrowingRunnable... actions)
+  public static void runAllAndAccumulateExceptions(ThrowingRunnable<?>... actions)
       throws VideoFrameProcessingException {
     @Nullable
     VideoFrameProcessingException exception = runAllAndAccumulateExceptionInternal(actions);
@@ -291,7 +284,7 @@ public final class FrameProcessorUtils {
    * @param actions The throwing actions to execute.
    */
   public static void runAllAndAccumulateExceptions(
-      Consumer<VideoFrameProcessingException> errorConsumer, ThrowingRunnable... actions) {
+      Consumer<VideoFrameProcessingException> errorConsumer, ThrowingRunnable<?>... actions) {
     @Nullable
     VideoFrameProcessingException exception = runAllAndAccumulateExceptionInternal(actions);
     if (exception != null) {
@@ -301,9 +294,9 @@ public final class FrameProcessorUtils {
 
   @Nullable
   private static VideoFrameProcessingException runAllAndAccumulateExceptionInternal(
-      ThrowingRunnable... actions) {
+      ThrowingRunnable<?>... actions) {
     @Nullable VideoFrameProcessingException firstException = null;
-    for (ThrowingRunnable action : actions) {
+    for (ThrowingRunnable<?> action : actions) {
       if (action == null) {
         continue;
       }

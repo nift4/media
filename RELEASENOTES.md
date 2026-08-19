@@ -3,6 +3,8 @@
 ### Unreleased changes
 
 *   Common Library:
+    *   Add `MediaMetadata.playlistId` and
+        `MediaMetadata.Builder.setPlaylistId(String)`.
 *   ExoPlayer:
     *   Add support for ads in multi-period content (e.g., DASH) by splitting
         and offsetting the `AdPlaybackState` for each period.
@@ -30,10 +32,21 @@
     *   Fix an issue where Player.getCurrentPosition() could return stale values
         (updating only a few times per second) when dynamic scheduling is
         enabled ([#3286](https://github.com/androidx/media/issues/3286)).
+    *   Fix `ArrayIndexOutOfBoundsException` when a live timeline refresh moves
+        the default position past a server-side inserted ad that is currently
+        being played ([#3348](https://github.com/androidx/media/issues/3348)).
+    *   Fix a scrubbing mode issue where stale video frames could be briefly
+        displayed when seeking with
+        `ScrubbingModeParameters.allowSkippingMediaCodecFlush` enabled.
 *   CompositionPlayer:
     *   Support configuring the frame rate of video frame aggregation via
         `Composition.Builder.setVideoFrameAggregationParameters` for playback
         workflows.
+*   Decoder extensions (FFmpeg, VP9, AV1, etc.):
+    *   MPEG-H: Fix memory leak, truncation of non-ASCII characters, and
+        potential native crash under low-memory conditions when sending commands
+        to the `MpeghUiManager`
+        ([#3365](https://github.com/androidx/media/issues/3365)).
 *   Transformer:
     *   Fix a segmentation fault during release by introducing
         `AssetLoader.stop()` and `AssetLoader.isStopped()` methods to verify
@@ -44,11 +57,21 @@
         workflows.
 *   Track Selection:
 *   Extractors:
+    *   Add `ExtractorUtil.getFramesPerEncodedSample` to calculate the number of
+        audio frames per sample for encoded audio formats
+        ([#3367](https://github.com/androidx/media/issues/3367)).
+    *   Matroska: Fix issue where Tracks placed after clusters wouldn't result
+        in a seekable timeline
+        ([#3377](https://github.com/androidx/media/issues/3377)).
+    *   Add `FLAG_READ_XMP_METADATA` to `Mp4Extractor` to extract XMP metadata
+        from top-level UUID boxes.
     *   Fix corrupted AC-3, DTS and LPCM audio when playing DVD-style MPEG-PS
         content, by stripping the `private_stream_1` sub-stream header from each
         PES packet in `PsExtractor` before the payload is passed to the audio
         reader ([#3327](https://github.com/androidx/media/issues/3327)).
 *   Inspector:
+    *   Support retrieving XMP metadata from MP4 files using
+        `MetadataRetriever`.
 *   Inspector Frame:
 *   Audio:
     *   Fix offload issue in which playback could stall during pre-roll or
@@ -71,14 +94,23 @@
         `traf` boxes of fragmented MP4 files to provide media decode timestamps.
     *   Support writing E-AC-3 and E-AC-3 JOC (Dolby Atmos) `dec3` container
         boxes in `Mp4Muxer`.
+    *   Add WebM format support to `MediaMuxerCompat`.
     *   Write `mfra` (Movie Fragment Random Access) box at the end of fragmented
         MP4 files to allow seeking via `FragmentedMp4Extractor` using
         `FLAG_READ_MFRA_FOR_SEEK_MAP`.
-    *   Fix crash in `Mp4Writer` when writing an EOS sample before any other
-        samples are written.
+    *   Fix crash in `Mp4Writer` and `FragmentedMp4Writer` when writing an EOS
+        sample before any other samples are written.
 *   IMA extension:
 *   Session:
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+    *   Add `MediaConstants.EXTRAS_KEY_PLAYLIST_ID` to populate
+        `MediaMetadata.playlistId` from legacy metadata and descriptions.
+    *   Fix `NullPointerException` when an in-process `MediaController` is
+        released from a `Player.Listener` callback
+        ([#3375](https://github.com/androidx/media/issues/3375)).
+>>>>>>> 4856edef7fba4212eb5291745962f5fb4e9d87aa
 *   UI:
     *   Introduce `PresentationState.videoAspectRatio` and make
         `Modifier.resizeWithContentScale` take `aspectRatio: Float?` instead of
@@ -87,6 +119,7 @@
         `media3-ui-compose` module for listening to player's current cues.
     *   Add scrubbing mode support to `ProgressSlider` if it is based on
         `ExoPlayer` or `CompositionPlayer`.
+<<<<<<< HEAD
 =======
     *   Fix double-downscaling of artwork in `MediaSession` when the image size
         is close to the platform limit, resolving blurriness in notifications
@@ -97,6 +130,12 @@
         the background ([#3270](https://github.com/androidx/media/issues/3270)).
 *   UI:
 >>>>>>> parent of 58f500fa66 (Map and propagate Timeline UIDs across the IPC boundary)
+=======
+    *   Add `showArtwork` support to `PresentationState` and use it to time
+        rendering of the provided optional `artwork` Composable in
+        `ContentFrame` and `Player`. Add `Artwork` Composable to be used as the
+        default value for the `artwork` slot.
+>>>>>>> 4856edef7fba4212eb5291745962f5fb4e9d87aa
 *   Downloads:
 *   OkHttp extension:
 *   Cronet extension:
@@ -112,12 +151,20 @@
     *   Support whitespace-separated lists of `@id` values in trick mode
         (`http://dashif.org/guidelines/trickmode`) descriptor `@value`
         attributes ([#3315](https://github.com/androidx/media/issues/3315)).
+    *   Fix incorrect sample timestamp calculation for image tracks with a
+        `presentationTimeOffset`
+        ([#3334](https://github.com/androidx/media/issues/3334)).
 *   Smooth Streaming extension:
 *   RTSP extension:
     *   Fix an `IllegalStateException` crash that occurred when processing
         delayed network responses after the RTSP client was closed.
     *   Fix issue where rapid scrubbing could incorrectly trigger the TCP
         protocol fallback mechanic.
+    *   Fix an `IllegalStateException` crash that can occur when processing
+        delayed network responses after the RTSP client resets state during
+        track reselection, session teardown, or uri redirection.
+    *   Fix issue where seeking again prior to playback restart could cause an
+        `IllegalStateException` crash.
 *   Decoder extensions (FFmpeg, VP9, AV1, etc.):
     *   Opus: Fix memory corruption when multiple `OpusDecoder` instances are
         initialized concurrently.

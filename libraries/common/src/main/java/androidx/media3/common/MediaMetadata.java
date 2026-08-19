@@ -93,6 +93,7 @@ public final class MediaMetadata {
     @Nullable private CharSequence compilation;
     @Nullable private CharSequence station;
     @Nullable private @MediaType Integer mediaType;
+    @Nullable private String playlistId;
     @Nullable private Bundle extras;
     private ImmutableList<String> supportedCommands;
 
@@ -138,6 +139,7 @@ public final class MediaMetadata {
       this.compilation = mediaMetadata.compilation;
       this.station = mediaMetadata.station;
       this.mediaType = mediaMetadata.mediaType;
+      this.playlistId = mediaMetadata.playlistId;
       this.supportedCommands = mediaMetadata.supportedCommands;
       this.extras = mediaMetadata.extras;
     }
@@ -466,6 +468,19 @@ public final class MediaMetadata {
       return this;
     }
 
+    /**
+     * Sets the playlist ID.
+     *
+     * @throws IllegalArgumentException if {@code playlistId} is empty.
+     */
+    @CanIgnoreReturnValue
+    @UnstableApi
+    public Builder setPlaylistId(@Nullable String playlistId) {
+      checkArgument(playlistId == null || !playlistId.isEmpty());
+      this.playlistId = playlistId;
+      return this;
+    }
+
     /** Sets the extras {@link Bundle}. */
     @CanIgnoreReturnValue
     public Builder setExtras(@Nullable Bundle extras) {
@@ -639,6 +654,9 @@ public final class MediaMetadata {
       }
       if (mediaMetadata.mediaType != null) {
         setMediaType(mediaMetadata.mediaType);
+      }
+      if (mediaMetadata.playlistId != null) {
+        setPlaylistId(mediaMetadata.playlistId);
       }
       if (mediaMetadata.extras != null) {
         setExtras(mediaMetadata.extras);
@@ -1175,6 +1193,9 @@ public final class MediaMetadata {
   /** Optional {@link MediaType}. */
   @Nullable public final @MediaType Integer mediaType;
 
+  /** Optional playlist ID. */
+  @UnstableApi @Nullable public final String playlistId;
+
   /**
    * Optional extras {@link Bundle}.
    *
@@ -1245,6 +1266,7 @@ public final class MediaMetadata {
     this.compilation = builder.compilation;
     this.station = builder.station;
     this.mediaType = mediaType;
+    this.playlistId = builder.playlistId;
     this.supportedCommands = builder.supportedCommands;
     this.extras = builder.extras;
   }
@@ -1299,6 +1321,7 @@ public final class MediaMetadata {
         && TextUtils.equals(compilation, that.compilation)
         && TextUtils.equals(station, that.station)
         && Objects.equals(mediaType, that.mediaType)
+        && Objects.equals(playlistId, that.playlistId)
         && Objects.equals(supportedCommands, that.supportedCommands)
         && ((extras == null) == (that.extras == null))
         && (extras == null || Objects.equals(extras.getString("lyricInfo"), that.extras.getString("lyricInfo")));
@@ -1343,7 +1366,8 @@ public final class MediaMetadata {
         station,
         mediaType,
         extras == null,
-        supportedCommands);
+        supportedCommands,
+        playlistId);
   }
 
   private static final String FIELD_TITLE = Util.intToStringMaxRadix(0);
@@ -1382,7 +1406,8 @@ public final class MediaMetadata {
   private static final String FIELD_DURATION_MS = Util.intToStringMaxRadix(33);
   private static final String FIELD_SUPPORTED_COMMANDS = Util.intToStringMaxRadix(34);
   private static final String FIELD_DISC_SUBTITLE = Util.intToStringMaxRadix(35);
-  private static final String FIELD_IN_PROCESS_BINDER = Util.intToStringMaxRadix(36);
+  private static final String FIELD_PLAYLIST_ID = Util.intToStringMaxRadix(36);
+  private static final String FIELD_IN_PROCESS_BINDER = Util.intToStringMaxRadix(37);
   private static final String FIELD_EXTRAS = Util.intToStringMaxRadix(1000);
 
   // Use a fairly lenient threshold for sending byte array to legacy processes that don't support
@@ -1520,6 +1545,9 @@ public final class MediaMetadata {
     if (mediaType != null) {
       bundle.putInt(FIELD_MEDIA_TYPE, mediaType);
     }
+    if (playlistId != null) {
+      bundle.putString(FIELD_PLAYLIST_ID, playlistId);
+    }
     if (!supportedCommands.isEmpty()) {
       bundle.putStringArrayList(FIELD_SUPPORTED_COMMANDS, new ArrayList<>(supportedCommands));
     }
@@ -1580,6 +1608,7 @@ public final class MediaMetadata {
         .setGenre(bundle.getCharSequence(FIELD_GENRE))
         .setCompilation(bundle.getCharSequence(FIELD_COMPILATION))
         .setStation(bundle.getCharSequence(FIELD_STATION))
+        .setPlaylistId(bundle.getString(FIELD_PLAYLIST_ID))
         .setExtras(convertToNullIfInvalid(bundle.getBundle(FIELD_EXTRAS)));
 
     if (bundle.containsKey(FIELD_ARTWORK_DATA)) {

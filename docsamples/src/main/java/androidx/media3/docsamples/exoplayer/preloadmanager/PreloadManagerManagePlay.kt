@@ -32,14 +32,12 @@ object PreloadManagerManagePlayKt {
   }
 
   @OptIn(UnstableApi::class)
-  private fun addMedia(preloadManager: DefaultPreloadManager) {
-    // [START android_defaultpreloadmanager_addMedia]
+  private fun addMediaBatch(preloadManager: DefaultPreloadManager) {
+    // [START android_defaultpreloadmanager_addMediaBatch]
     val initialMediaItems = pullMediaItemsFromService(count = 20)
-    for (index in 0 until initialMediaItems.size) {
-      preloadManager.add(initialMediaItems[index], /* rankingData= */ index)
-    }
-    // items aren't actually loaded yet! need to call invalidate() after this
-    // [END android_defaultpreloadmanager_addMedia]
+    val rankingDataList = initialMediaItems.indices.toList()
+    preloadManager.addMediaItems(initialMediaItems, rankingDataList)
+    // [END android_defaultpreloadmanager_addMediaBatch]
   }
 
   @OptIn(UnstableApi::class)
@@ -62,8 +60,8 @@ object PreloadManagerManagePlayKt {
     if (mediaSource != null) {
       player.setMediaSource(mediaSource)
     } else {
-      // If mediaSource is null, that mediaItem hasn't been added to the preload manager
-      // yet. So, send it directly to the player when it's about to play
+      // If the mediaSource is null, its mediaItem hasn't been added to the preload
+      // manager yet. Send it directly to the player when it's about to play.
       player.setMediaItem(mediaItem)
     }
     player.prepare()
@@ -78,10 +76,40 @@ object PreloadManagerManagePlayKt {
   }
 
   @OptIn(UnstableApi::class)
-  private fun removeMedia(mediaItem: MediaItem, preloadManager: DefaultPreloadManager) {
-    // [START android_defaultpreloadmanager_removeItem]
-    preloadManager.remove(mediaItem)
-    // [END android_defaultpreloadmanager_removeItem]
+  private fun getAndPlayMediaAndUpdateIndex(
+    preloadManager: DefaultPreloadManager,
+    mediaItem: MediaItem,
+    player: ExoPlayer,
+    currentIndex: Int,
+  ) {
+    // [START android_defaultpreloadmanager_getAndPlayMediaAndUpdateIndex]
+    // When a media item is about to be displayed on the screen
+    val mediaSource = preloadManager.getMediaSource(mediaItem)
+    if (mediaSource != null) {
+      player.setMediaSource(mediaSource)
+    } else {
+      // If the mediaSource is null, its mediaItem hasn't been added to the preload
+      // manager yet. Send it directly to the player when it's about to play.
+      player.setMediaItem(mediaItem)
+    }
+    player.prepare()
+
+    // When the media item is being displayed at the center of the screen ("in focus")
+    player.play()
+    // Update the current playing index to let the preload manager know where the user
+    // is in the carousel/pagination/list.
+    preloadManager.setCurrentPlayingIndex(currentIndex)
+    // [END android_defaultpreloadmanager_getAndPlayMediaAndUpdateIndex]
+  }
+
+  @OptIn(UnstableApi::class)
+  private fun removeMediaBatch(
+    mediaItemsToRemove: List<MediaItem>,
+    preloadManager: DefaultPreloadManager,
+  ) {
+    // [START android_defaultpreloadmanager_removeMediaBatch]
+    preloadManager.removeMediaItems(mediaItemsToRemove)
+    // [END android_defaultpreloadmanager_removeMediaBatch]
   }
 
   @OptIn(UnstableApi::class)

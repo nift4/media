@@ -15,10 +15,16 @@
  */
 package androidx.media3.effect;
 
+import static androidx.media3.common.ColorInfo.SDR_BT709_LIMITED;
+import static androidx.media3.common.ColorInfo.isWideColorGamut;
+import static androidx.media3.effect.FrameProcessorUtils.OPEN_GL_VERSION_3;
+import static androidx.media3.effect.FrameProcessorUtils.releaseOpenGl;
 import static androidx.media3.effect.FrameProcessorUtils.runAllAndAccumulateExceptions;
+import static androidx.media3.effect.FrameProcessorUtils.setupOpenGl;
 import static androidx.media3.effect.FrameProcessorUtils.waitAndCloseFence;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
+import static com.google.common.base.Preconditions.checkState;
 import static com.google.common.util.concurrent.MoreExecutors.listeningDecorator;
 
 import android.content.Context;
@@ -39,14 +45,14 @@ import androidx.media3.common.VideoCompositorSettings;
 import androidx.media3.common.VideoFrameProcessingException;
 import androidx.media3.common.util.Consumer;
 import androidx.media3.common.util.ExperimentalApi;
+import androidx.media3.common.util.GlUtil.GlException;
 import androidx.media3.common.util.Log;
+import androidx.media3.common.util.ThrowingRunnable;
 import androidx.media3.common.video.AsyncFrame;
 import androidx.media3.common.video.Frame;
 import androidx.media3.common.video.FrameProcessor;
 import androidx.media3.common.video.FrameWriter;
 import androidx.media3.common.video.HardwareBufferFrame;
-import androidx.media3.effect.FrameProcessorUtils.ThrowingRunnable;
-import androidx.media3.effect.GlTextureFrameCompositor.CompositorGlProgram;
 import com.google.common.collect.ImmutableList;
 import com.google.common.util.concurrent.ListeningExecutorService;
 import java.util.Collections;
@@ -116,17 +122,22 @@ public final class DefaultGlFrameProcessor implements FrameProcessor {
     @Nullable private final HardwareBufferConverter.Factory hardwareBufferConverterFactory;
     @Nullable private final HardwareBufferJniWrapper hardwareBufferJniWrapper;
     @Nullable private final GlTextureFrameConsumer frameWriterGlTextureFrameConsumer;
-    private final CompositorGlProgram compositorGlProgram;
-    @Nullable private final TexturePool.Factory compositorTexturePoolFactory;
+    private final GlTextureFrameCompositor.Factory glTextureFrameCompositorFactory;
+
+    // Override for whether surfaceless contexts are supported, used for testing. If null,
+    // surfaceless context extension support is queried in production.
+    @Nullable private final Boolean isSurfacelessContextExtensionSupported;
+    // TODO(b/545584738): Allow setting a working color space.
+    @Nullable private ColorInfo workingColorSpace;
 
     // TODO: b/536810100 - Remove this constructor and make the testing constructor public so
     // callers can pass factories.
     /**
      * Creates an instance.
      *
-     * <p>The caller is responsible for setting up OpenGL resources and releasing them after
-     * {@linkplain FrameProcessor#close closing} the built {@link DefaultGlFrameProcessor}. The
-     * caller should also shut down the {@link ExecutorService glExecutorService}.
+     * <p>The processor internally manages the setup and release of OpenGL resources. The caller is
+     * responsible for shutting down the {@link ExecutorService glExecutorService} after {@linkplain
+     * FrameProcessor#close closing} the built {@link DefaultGlFrameProcessor}.
      */
     public Factory(
         Context context,
@@ -139,12 +150,11 @@ public final class DefaultGlFrameProcessor implements FrameProcessor {
       this.glExecutorService = glExecutorService;
       hardwareBufferConverterFactory = null;
       frameWriterGlTextureFrameConsumer = null;
-      compositorGlProgram = new DefaultCompositorGlProgram(context);
-      compositorTexturePoolFactory =
-          outputColorInfo ->
-              new TexturePool(
-                  /* useHighPrecisionColorComponents= */ ColorInfo.isTransferHdr(outputColorInfo),
-                  DEFAULT_COMPOSITOR_CAPACITY);
+      glTextureFrameCompositorFactory =
+          new DefaultGlTextureFrameCompositor.Factory(
+              new DefaultCompositorGlProgram.Factory(context));
+      isSurfacelessContextExtensionSupported = null;
+      workingColorSpace = null;
     }
 
     /**
@@ -161,16 +171,17 @@ public final class DefaultGlFrameProcessor implements FrameProcessor {
         ListeningExecutorService glExecutorService,
         HardwareBufferConverter.Factory hardwareBufferConverterFactory,
         GlTextureFrameConsumer frameWriterGlTextureFrameConsumer,
-        CompositorGlProgram compositorGlProgram,
-        TexturePool.Factory compositorTexturePoolFactory) {
+        GlTextureFrameCompositor.Factory glTextureFrameCompositorFactory,
+        @Nullable Boolean isSurfacelessContextExtensionSupported) {
       this.context = context;
       this.glObjectsProvider = glObjectsProvider;
       this.glExecutorService = glExecutorService;
       this.hardwareBufferConverterFactory = hardwareBufferConverterFactory;
       this.frameWriterGlTextureFrameConsumer = frameWriterGlTextureFrameConsumer;
-      this.compositorGlProgram = compositorGlProgram;
-      this.compositorTexturePoolFactory = compositorTexturePoolFactory;
+      this.glTextureFrameCompositorFactory = glTextureFrameCompositorFactory;
+      this.isSurfacelessContextExtensionSupported = isSurfacelessContextExtensionSupported;
       hardwareBufferJniWrapper = null;
+      workingColorSpace = null;
     }
 
     @Override
@@ -194,18 +205,17 @@ public final class DefaultGlFrameProcessor implements FrameProcessor {
                     outputColorInfo,
                     e -> listenerExecutor.execute(() -> listener.onError(e)));
       }
-      TexturePool.Factory compositorTexturePoolFactory =
-          checkNotNull(this.compositorTexturePoolFactory);
       return new DefaultGlFrameProcessor(
           context,
           listeningDecorator(glExecutorService),
           glObjectsProvider,
           checkNotNull(hardwareBufferConverterFactory),
           checkNotNull(frameWriterGlTextureFrameConsumer),
-          compositorGlProgram,
-          checkNotNull(compositorTexturePoolFactory),
+          glTextureFrameCompositorFactory,
+          isSurfacelessContextExtensionSupported,
           listenerExecutor,
-          listener);
+          listener,
+          workingColorSpace);
     }
   }
 
@@ -229,12 +239,6 @@ public final class DefaultGlFrameProcessor implements FrameProcessor {
    * and then {@code KEY_COMPOSITION_EFFECTS}.
    */
   public static final String KEY_COMPOSITOR_SETTINGS = "KEY_COMPOSITOR_SETTINGS";
-
-  /**
-   * Metadata key for storing the {@code Composition.HdrMode} (an {@link Integer}) in {@linkplain
-   * Frame#getMetadata() frame metadata}.
-   */
-  public static final String KEY_HDR_MODE = "KEY_HDR_MODE";
 
   /**
    * Metadata key for storing the {@link List} of video {@linkplain Effect effects} to apply on the
@@ -266,24 +270,40 @@ public final class DefaultGlFrameProcessor implements FrameProcessor {
 
   private static final String TAG = "GlFrameProcessor";
 
-  private static final ColorInfo ULTRA_HDR_OUTPUT_COLOR_INFO =
+  /** An SDR color space with BT.709 / sRGB color primaries, and linear transfer function. */
+  /* package */ static final ColorInfo COLORSPACE_SDR_LINEAR =
+      new ColorInfo.Builder()
+          .setColorSpace(C.COLOR_SPACE_BT709)
+          .setColorTransfer(C.COLOR_TRANSFER_LINEAR)
+          .build();
+
+  /** An SDR color space with BT.709 / sRGB color primaries, and sRGB transfer function. */
+  /* package */ static final ColorInfo COLORSPACE_SDR_SRGB =
+      new ColorInfo.Builder()
+          .setColorSpace(C.COLOR_SPACE_BT709)
+          .setColorTransfer(C.COLOR_TRANSFER_SRGB)
+          .build();
+
+  /** An HDR color space with BT.2020 color primaries, and linear transfer function. */
+  /* package */ static final ColorInfo COLORSPACE_HDR_LINEAR =
+      new ColorInfo.Builder()
+          .setColorSpace(C.COLOR_SPACE_BT2020)
+          .setColorTransfer(C.COLOR_TRANSFER_LINEAR)
+          .build();
+
+  /** An HDR color space with BT.2020 color primaries, and HLG transfer function. */
+  /* package */ static final ColorInfo COLORSPACE_HDR_HLG =
       new ColorInfo.Builder()
           .setColorSpace(C.COLOR_SPACE_BT2020)
           .setColorTransfer(C.COLOR_TRANSFER_HLG)
-          .setColorRange(C.COLOR_RANGE_LIMITED)
           .build();
-
-  private static final ColorInfo DEFAULT_COLOR_INFO = ColorInfo.SDR_BT709_LIMITED;
-
-  private static final int DEFAULT_COMPOSITOR_CAPACITY = 2;
 
   private final Context context;
   private final GlObjectsProvider glObjectsProvider;
   private final ListeningExecutorService glExecutorService;
   private final HardwareBufferConverter.Factory hardwareBufferConverterFactory;
-  private final TexturePool.Factory compositorTexturePoolFactory;
+  private final GlTextureFrameCompositor.Factory glTextureFrameCompositorFactory;
   private final GlTextureFrameConsumer frameWriterGlTextureFrameConsumer;
-  private final CompositorGlProgram compositorGlProgram;
   private final Executor listenerExecutor;
   private final Listener listener;
   private final Consumer<VideoFrameProcessingException> errorConsumer;
@@ -314,7 +334,15 @@ public final class DefaultGlFrameProcessor implements FrameProcessor {
   private boolean shouldSignalEos;
 
   // Accessed on the GL thread.
+  // A null color space means it's unset; and it's inferred from the input color.
+  @Nullable private ColorInfo workingColorSpace;
   private boolean isPipelineInitialized;
+  private boolean isGlSetup;
+  private boolean isHdrSupported;
+
+  // Override for whether surfaceless contexts are supported, used for testing. If null,
+  // surfaceless context extension support is queried in production.
+  @Nullable private final Boolean isSurfacelessContextExtensionSupported;
 
   private DefaultGlFrameProcessor(
       Context context,
@@ -322,19 +350,21 @@ public final class DefaultGlFrameProcessor implements FrameProcessor {
       GlObjectsProvider glObjectsProvider,
       HardwareBufferConverter.Factory hardwareBufferConverterFactory,
       GlTextureFrameConsumer frameWriterGlTextureFrameConsumer,
-      CompositorGlProgram compositorGlProgram,
-      TexturePool.Factory compositorTexturePoolFactory,
+      GlTextureFrameCompositor.Factory glTextureFrameCompositorFactory,
+      @Nullable Boolean isSurfacelessContextExtensionSupported,
       Executor listenerExecutor,
-      Listener listener) {
+      Listener listener,
+      @Nullable ColorInfo workingColorSpace) {
     this.context = context;
     this.glObjectsProvider = glObjectsProvider;
     this.glExecutorService = glExecutorService;
     this.hardwareBufferConverterFactory = hardwareBufferConverterFactory;
     this.frameWriterGlTextureFrameConsumer = frameWriterGlTextureFrameConsumer;
-    this.compositorGlProgram = compositorGlProgram;
-    this.compositorTexturePoolFactory = compositorTexturePoolFactory;
+    this.glTextureFrameCompositorFactory = glTextureFrameCompositorFactory;
+    this.isSurfacelessContextExtensionSupported = isSurfacelessContextExtensionSupported;
     this.listenerExecutor = listenerExecutor;
     this.listener = listener;
+    this.workingColorSpace = workingColorSpace;
     this.errorConsumer = e -> listenerExecutor.execute(() -> listener.onError(e));
     this.glTextureFramesQueuedDownstream = Collections.newSetFromMap(new IdentityHashMap<>());
     this.convertedGlTextureFrames = new SparseArray<>();
@@ -367,8 +397,35 @@ public final class DefaultGlFrameProcessor implements FrameProcessor {
                 return null;
               }
             }
+            if (!isGlSetup) {
+              int openGlVersion;
+              try {
+                openGlVersion =
+                    isSurfacelessContextExtensionSupported != null
+                        ? setupOpenGl(glObjectsProvider, isSurfacelessContextExtensionSupported)
+                        : setupOpenGl(glObjectsProvider);
+              } catch (GlException e) {
+                isGlSetup = true;
+                throw VideoFrameProcessingException.from(e);
+              }
+              isHdrSupported = openGlVersion == OPEN_GL_VERSION_3;
+              isGlSetup = true;
+            }
             if (!isPipelineInitialized) {
-              initializePipeline(resolveOutputColorInfo(frames.get(0).frame));
+              boolean isAnyInputHdr = false;
+              for (int i = 0; i < frames.size(); i++) {
+                Format inputFormat = frames.get(i).frame.getFormat();
+                if (workingColorSpace == null) {
+                  workingColorSpace = resolveWorkingColorspace(inputFormat);
+                }
+                isAnyInputHdr |= isWideColorGamut(inputFormat.colorInfo);
+              }
+              if (isAnyInputHdr || isWideColorGamut(workingColorSpace)) {
+                checkState(
+                    isHdrSupported,
+                    "OpenGL ES3 and 10 bit context support required for HDR inputs");
+              }
+              initializePipeline();
             }
             activeSequenceIndices.clear();
             for (int i = 0; i < frames.size(); i++) {
@@ -416,7 +473,7 @@ public final class DefaultGlFrameProcessor implements FrameProcessor {
     }
     submitToGlExecutor(
         () -> {
-          ImmutableList.Builder<ThrowingRunnable> closeActions = ImmutableList.builder();
+          ImmutableList.Builder<ThrowingRunnable<?>> closeActions = ImmutableList.builder();
           closeActions.addAll(getReleaseUnqueuedFramesActions());
           if (hardwareBufferConverter != null) {
             closeActions.add(hardwareBufferConverter::close);
@@ -430,74 +487,22 @@ public final class DefaultGlFrameProcessor implements FrameProcessor {
           }
           if (compositingProcessor != null) {
             closeActions.add(compositingProcessor::close);
-          } else {
-            closeActions.add(compositorGlProgram::release);
           }
           if (postProcessingChain != null) {
             closeActions.add(postProcessingChain::close);
           }
           closeActions.add(frameWriterGlTextureFrameConsumer::close);
-          runAllAndAccumulateExceptions(closeActions.build().toArray(new ThrowingRunnable[0]));
+          if (isGlSetup) {
+            closeActions.add(() -> releaseOpenGl(glObjectsProvider));
+          }
+          runAllAndAccumulateExceptions(closeActions.build().toArray(new ThrowingRunnable<?>[0]));
           return null;
         });
   }
 
-  private ColorInfo resolveOutputColorInfo(Frame firstFrame) {
-    Format format = firstFrame.getFormat();
-    ColorInfo inputColorInfo = format.colorInfo != null ? format.colorInfo : DEFAULT_COLOR_INFO;
-    int hdrMode = 0; /* HDR_MODE_KEEP_HDR */
-    if (firstFrame.getMetadata().containsKey(KEY_HDR_MODE)) {
-      hdrMode = (int) firstFrame.getMetadata().get(KEY_HDR_MODE);
-    }
-
-    ColorInfo outputColorInfo;
-    if (Objects.equals(format.sampleMimeType, MimeTypes.IMAGE_JPEG_R)
-        && inputColorInfo.colorTransfer == C.COLOR_TRANSFER_SRGB) {
-      outputColorInfo = ULTRA_HDR_OUTPUT_COLOR_INFO;
-    } else if (inputColorInfo.colorTransfer == C.COLOR_TRANSFER_SRGB
-        || inputColorInfo.colorTransfer == C.COLOR_TRANSFER_GAMMA_2_2) {
-      outputColorInfo = ColorInfo.SDR_BT709_LIMITED;
-    } else {
-      outputColorInfo = inputColorInfo;
-    }
-
-    boolean isTransferHdr =
-        ColorInfo.isTransferHdr(inputColorInfo)
-            || Objects.equals(format.sampleMimeType, MimeTypes.IMAGE_JPEG_R);
-
-    if (!isTransferHdr) {
-      return outputColorInfo;
-    }
-
-    if (hdrMode == 2 /* Composition.HDR_MODE_TONE_MAP_HDR_TO_SDR_USING_OPEN_GL */) {
-      return ColorInfo.SDR_BT709_LIMITED;
-    }
-
-    if (hdrMode == 0 /* Composition.HDR_MODE_KEEP_HDR */) {
-      Format testFormat = format.buildUpon().setColorInfo(outputColorInfo).build();
-      boolean isSupported =
-          isFormatSupportedWithFallback(frameWriterGlTextureFrameConsumer, testFormat);
-
-      if (!isSupported) {
-        if (outputColorInfo.colorTransfer == C.COLOR_TRANSFER_HLG) {
-          ColorInfo pqColorInfo =
-              outputColorInfo.buildUpon().setColorTransfer(C.COLOR_TRANSFER_ST2084).build();
-          Format testFormatPq = testFormat.buildUpon().setColorInfo(pqColorInfo).build();
-          boolean isPqSupported =
-              isFormatSupportedWithFallback(frameWriterGlTextureFrameConsumer, testFormatPq);
-          if (isPqSupported) {
-            return pqColorInfo;
-          }
-        }
-        return ColorInfo.SDR_BT709_LIMITED;
-      }
-    }
-
-    return outputColorInfo;
-  }
-
-  private void initializePipeline(ColorInfo outputColorInfo) {
-    hardwareBufferConverter = hardwareBufferConverterFactory.create(outputColorInfo);
+  private void initializePipeline() {
+    hardwareBufferConverter =
+        hardwareBufferConverterFactory.create(checkNotNull(workingColorSpace));
     postProcessingChain =
         new GlTextureFrameProcessorChain(
             context,
@@ -507,11 +512,10 @@ public final class DefaultGlFrameProcessor implements FrameProcessor {
             frameWriterGlTextureFrameConsumer,
             KEY_COMPOSITION_EFFECTS);
     compositingProcessor =
-        new DefaultGlTextureFrameCompositor(
+        glTextureFrameCompositorFactory.create(
             glObjectsProvider,
-            compositorTexturePoolFactory.create(outputColorInfo),
+            checkNotNull(workingColorSpace),
             errorConsumer,
-            compositorGlProgram,
             glExecutorService,
             postProcessingChain);
     frameAggregator =
@@ -591,7 +595,7 @@ public final class DefaultGlFrameProcessor implements FrameProcessor {
     }
     runAllAndAccumulateExceptions(
         /* errorConsumer= */ exception::addSuppressed,
-        getReleaseUnqueuedFramesActions().toArray(new ThrowingRunnable[0]));
+        getReleaseUnqueuedFramesActions().toArray(new ThrowingRunnable<?>[0]));
     convertedGlTextureFrames.clear();
     glTextureFramesQueuedDownstream.clear();
     listenerExecutor.execute(() -> listener.onError(VideoFrameProcessingException.from(exception)));
@@ -637,8 +641,8 @@ public final class DefaultGlFrameProcessor implements FrameProcessor {
     return (Integer) checkNotNull(frame.getMetadata().get(KEY_COMPOSITION_SEQUENCE_INDEX));
   }
 
-  private ImmutableList<ThrowingRunnable> getReleaseUnqueuedFramesActions() {
-    ImmutableList.Builder<ThrowingRunnable> actions = ImmutableList.builder();
+  private ImmutableList<ThrowingRunnable<?>> getReleaseUnqueuedFramesActions() {
+    ImmutableList.Builder<ThrowingRunnable<?>> actions = ImmutableList.builder();
     for (int i = 0; i < convertedGlTextureFrames.size(); i++) {
       GlTextureFrame glTextureFrame = convertedGlTextureFrames.valueAt(i);
       if (!glTextureFramesQueuedDownstream.contains(glTextureFrame)) {
@@ -653,23 +657,20 @@ public final class DefaultGlFrameProcessor implements FrameProcessor {
     return actions.build();
   }
 
-  private static boolean isFormatSupportedWithFallback(
-      GlTextureFrameConsumer consumer, Format format) {
-    if (consumer.isOutputFormatSupported(format)) {
-      return true;
+  private static ColorInfo resolveWorkingColorspace(Format format) {
+    ColorInfo inputColorInfo = format.colorInfo == null ? SDR_BT709_LIMITED : format.colorInfo;
+    if (Objects.equals(format.sampleMimeType, MimeTypes.IMAGE_JPEG_R)
+        && inputColorInfo.colorTransfer == C.COLOR_TRANSFER_SRGB) {
+      return COLORSPACE_HDR_HLG;
     }
-    if (format.width < format.height) {
-      Format rotated90 =
-          format
-              .buildUpon()
-              .setWidth(format.height)
-              .setHeight(format.width)
-              .setRotationDegrees(90)
-              .build();
-      Format rotated270 = rotated90.buildUpon().setRotationDegrees(270).build();
-      return consumer.isOutputFormatSupported(rotated90)
-          || consumer.isOutputFormatSupported(rotated270);
+    if (isWideColorGamut(inputColorInfo)) {
+      // TODO(b/545552444) Support HDR in the pipeline. If colorspace is not set, the pipeline
+      //  should preserve HDR if possible.
+      // Force tone map to SDR.
+      return COLORSPACE_SDR_SRGB;
+    } else {
+      // All SDR input are treated as sRGB.
+      return COLORSPACE_SDR_SRGB;
     }
-    return false;
   }
 }

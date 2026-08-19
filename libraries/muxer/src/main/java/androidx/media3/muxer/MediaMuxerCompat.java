@@ -16,7 +16,6 @@
 package androidx.media3.muxer;
 
 import static androidx.media3.muxer.MuxerUtil.getMuxerBufferInfoFromMediaCodecBufferInfo;
-import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkState;
 import static java.lang.annotation.ElementType.TYPE_USE;
 
@@ -48,30 +47,47 @@ import java.nio.ByteBuffer;
  * A drop-in replacement for {@link MediaMuxer} that provides similar functionality, based on the
  * {@code media3.muxer} logic.
  *
- * <p>Currently only MP4 file format is supported.
+ * <p>Supported file formats are {@link #OUTPUT_FORMAT_MP4 MP4} and {@link #OUTPUT_FORMAT_WEBM
+ * WEBM}.
  *
  * <p>Supported codecs are:
  *
  * <ul>
- *   <li>Video Codecs:
+ *   <li>For MP4 file format:
  *       <ul>
- *         <li>AV1
- *         <li>MPEG-4
- *         <li>H.263
- *         <li>H.264 (AVC)
- *         <li>H.265 (HEVC)
- *         <li>VP9
- *         <li>APV
- *         <li>Dolby Vision
+ *         <li>Video Codecs:
+ *             <ul>
+ *               <li>AV1
+ *               <li>MPEG-4
+ *               <li>H.263
+ *               <li>H.264 (AVC)
+ *               <li>H.265 (HEVC)
+ *               <li>VP9
+ *               <li>APV
+ *               <li>Dolby Vision
+ *             </ul>
+ *         <li>Audio Codecs:
+ *             <ul>
+ *               <li>AAC
+ *               <li>AMR-NB (Narrowband AMR)
+ *               <li>AMR-WB (Wideband AMR)
+ *               <li>Opus
+ *               <li>Vorbis
+ *               <li>Raw Audio
+ *             </ul>
  *       </ul>
- *   <li>Audio Codecs:
+ *   <li>For WebM file format:
  *       <ul>
- *         <li>AAC
- *         <li>AMR-NB (Narrowband AMR)
- *         <li>AMR-WB (Wideband AMR)
- *         <li>Opus
- *         <li>Vorbis
- *         <li>Raw Audio
+ *         <li>Video Codecs:
+ *             <ul>
+ *               <li>VP8
+ *               <li>VP9
+ *             </ul>
+ *         <li>Audio Codecs:
+ *             <ul>
+ *               <li>Opus
+ *               <li>Vorbis
+ *             </ul>
  *       </ul>
  * </ul>
  *
@@ -84,15 +100,19 @@ public final class MediaMuxerCompat {
   @Documented
   @Retention(RetentionPolicy.SOURCE)
   @Target(TYPE_USE)
-  @IntDef({OUTPUT_FORMAT_MP4})
+  @IntDef({OUTPUT_FORMAT_MP4, OUTPUT_FORMAT_WEBM})
   @UnstableApi
   public @interface OutputFormat {}
 
   /** The MP4 file format. */
   public static final int OUTPUT_FORMAT_MP4 = MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4;
 
+  /** The WebM file format. */
+  public static final int OUTPUT_FORMAT_WEBM = MediaMuxer.OutputFormat.MUXER_OUTPUT_WEBM;
+
   @Nullable private final FileDescriptor fileDescriptor;
   private final Muxer muxer;
+  private final CompatMetadataDelegate compatMetadataDelegate;
 
   private boolean startedMuxer;
   private boolean closedMuxer;
@@ -116,6 +136,7 @@ public final class MediaMuxerCompat {
       throw new IOException("Failed to create a copy of FileDescriptor", e);
     }
     muxer = createMuxer(new FileOutputStream(this.fileDescriptor), outputFormat);
+    compatMetadataDelegate = createCompatMetadataDelegate(outputFormat);
   }
 
   /**
@@ -128,6 +149,7 @@ public final class MediaMuxerCompat {
   public MediaMuxerCompat(String filePath, @OutputFormat int outputFormat) throws IOException {
     fileDescriptor = null;
     muxer = createMuxer(new FileOutputStream(filePath), outputFormat);
+    compatMetadataDelegate = createCompatMetadataDelegate(outputFormat);
   }
 
   /**
@@ -160,17 +182,7 @@ public final class MediaMuxerCompat {
   public int addTrack(MediaFormat format) {
     checkState(!startedMuxer);
     try {
-      float captureFps =
-          MediaFormatUtil.getFloatFromIntOrFloat(
-              format, MediaFormat.KEY_CAPTURE_RATE, C.RATE_UNSET);
-      if (captureFps != C.RATE_UNSET) {
-        MdtaMetadataEntry captureFpsMetadata =
-            new MdtaMetadataEntry(
-                MdtaMetadataEntry.KEY_ANDROID_CAPTURE_FPS,
-                /* value= */ Util.toByteArray(captureFps),
-                MdtaMetadataEntry.TYPE_INDICATOR_FLOAT32);
-        muxer.addMetadataEntry(captureFpsMetadata);
-      }
+      compatMetadataDelegate.handleAddTrackMetadata(format, muxer);
       return muxer.addTrack(MediaFormatUtil.createFormatFromMediaFormat(format));
     } catch (MuxerException e) {
       throw new RuntimeException(e);
@@ -216,7 +228,7 @@ public final class MediaMuxerCompat {
       @FloatRange(from = -90.0, to = 90.0) float latitude,
       @FloatRange(from = -180.0, to = 180.0) float longitude) {
     checkState(!startedMuxer);
-    muxer.addMetadataEntry(new Mp4LocationData(latitude, longitude));
+    compatMetadataDelegate.setLocation(latitude, longitude, muxer);
   }
 
   /**
@@ -230,7 +242,7 @@ public final class MediaMuxerCompat {
    */
   public void setOrientationHint(int degrees) {
     checkState(!startedMuxer);
-    muxer.addMetadataEntry(new Mp4OrientationData(degrees));
+    compatMetadataDelegate.setOrientationHint(degrees, muxer);
   }
 
   /**
@@ -273,7 +285,94 @@ public final class MediaMuxerCompat {
 
   private static Muxer createMuxer(
       FileOutputStream fileOutputStream, @OutputFormat int outputFormat) {
-    checkArgument(outputFormat == OUTPUT_FORMAT_MP4);
-    return new Mp4Muxer.Builder(SeekableMuxerOutput.of(fileOutputStream)).build();
+    SeekableMuxerOutput muxerOutput = SeekableMuxerOutput.of(fileOutputStream);
+    switch (outputFormat) {
+      case OUTPUT_FORMAT_MP4:
+        return new Mp4Muxer.Builder(muxerOutput).build();
+      case OUTPUT_FORMAT_WEBM:
+        return new WebmMuxer.Builder(muxerOutput).build();
+      default:
+        throw new IllegalArgumentException("Unsupported output format: " + outputFormat);
+    }
+  }
+
+  private static CompatMetadataDelegate createCompatMetadataDelegate(
+      @OutputFormat int outputFormat) {
+    switch (outputFormat) {
+      case OUTPUT_FORMAT_MP4:
+        return new Mp4CompatMetadataDelegate();
+      case OUTPUT_FORMAT_WEBM:
+        return new CompatMetadataDelegate() {};
+      default:
+        throw new IllegalArgumentException("Unsupported output format: " + outputFormat);
+    }
+  }
+
+  /** Encapsulates MP4-specific metadata operations for {@link MediaMuxerCompat}. */
+  private static final class Mp4CompatMetadataDelegate implements CompatMetadataDelegate {
+    @Override
+    public void handleAddTrackMetadata(MediaFormat format, Muxer muxer) {
+      float captureFps =
+          MediaFormatUtil.getFloatFromIntOrFloat(
+              format, MediaFormat.KEY_CAPTURE_RATE, C.RATE_UNSET);
+      if (captureFps != C.RATE_UNSET) {
+        MdtaMetadataEntry captureFpsMetadata =
+            new MdtaMetadataEntry(
+                MdtaMetadataEntry.KEY_ANDROID_CAPTURE_FPS,
+                /* value= */ Util.toByteArray(captureFps),
+                MdtaMetadataEntry.TYPE_INDICATOR_FLOAT32);
+        muxer.addMetadataEntry(captureFpsMetadata);
+      }
+    }
+
+    @Override
+    public void setLocation(
+        @FloatRange(from = -90.0, to = 90.0) float latitude,
+        @FloatRange(from = -180.0, to = 180.0) float longitude,
+        Muxer muxer) {
+      muxer.addMetadataEntry(new Mp4LocationData(latitude, longitude));
+    }
+
+    @Override
+    public void setOrientationHint(int degrees, Muxer muxer) {
+      muxer.addMetadataEntry(new Mp4OrientationData(degrees));
+    }
+  }
+
+  /** Delegate interface for container-specific metadata handling in {@link MediaMuxerCompat}. */
+  private interface CompatMetadataDelegate {
+    /**
+     * Extracts track metadata from {@code format} and adds it to {@code muxer}.
+     *
+     * <p>The default implementation is a no-op.
+     *
+     * @param format The track {@link MediaFormat}.
+     * @param muxer The target {@link Muxer}.
+     */
+    default void handleAddTrackMetadata(MediaFormat format, Muxer muxer) {}
+
+    /**
+     * Sets the location of the media file on {@code muxer}.
+     *
+     * <p>The default implementation is a no-op.
+     *
+     * @param latitude The latitude, in degrees.
+     * @param longitude The longitude, in degrees.
+     * @param muxer The target {@link Muxer}.
+     */
+    default void setLocation(
+        @FloatRange(from = -90.0, to = 90.0) float latitude,
+        @FloatRange(from = -180.0, to = 180.0) float longitude,
+        Muxer muxer) {}
+
+    /**
+     * Sets the orientation hint for the media file on {@code muxer}.
+     *
+     * <p>The default implementation is a no-op.
+     *
+     * @param degrees The orientation, in degrees.
+     * @param muxer The target {@link Muxer}.
+     */
+    default void setOrientationHint(int degrees, Muxer muxer) {}
   }
 }
