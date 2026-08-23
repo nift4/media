@@ -169,7 +169,13 @@ public final class AudioTrackAudioOutput implements AudioOutput {
             config.bufferSize);
 
     if (capabilityChangeListener != null) {
-      onRoutingChangedListener = new OnRoutingChangedListener(audioTrack, capabilityChangeListener);
+      if (SDK_INT >= 24) {
+        onRoutingChangedListener =
+            new OnRoutingChangedListenerApi24(audioTrack, capabilityChangeListener);
+      } else if (SDK_INT >= 23) {
+        onRoutingChangedListener =
+            new OnRoutingChangedListenerApi23(audioTrack, capabilityChangeListener);
+      }
     }
     offloadStreamEventCallbackV29 = isOffloadedPlayback() ? new StreamEventCallbackV29() : null;
   }
@@ -606,46 +612,36 @@ public final class AudioTrackAudioOutput implements AudioOutput {
     }
   }
 
-  private static final class OnRoutingChangedListener {
+  private interface OnRoutingChangedListener {
+    void release();
+  }
+
+  @RequiresApi(23)
+  private static final class OnRoutingChangedListenerApi23 implements OnRoutingChangedListener {
 
     private final AudioTrack audioTrack;
     private final CapabilityChangeListener capabilityChangeListener;
     private final Handler playbackThreadHandler;
 
-    @Nullable private AudioTrack.OnRoutingChangedListener listenerApi23;
-    @Nullable private AudioRouting.OnRoutingChangedListener listener;
+    @Nullable private AudioTrack.OnRoutingChangedListener listener;
 
-    private OnRoutingChangedListener(
+    private OnRoutingChangedListenerApi23(
         AudioTrack audioTrack, CapabilityChangeListener capabilityChangeListener) {
       this.audioTrack = audioTrack;
       this.capabilityChangeListener = capabilityChangeListener;
       this.playbackThreadHandler = Util.createHandlerForCurrentLooper();
-      if (SDK_INT >= 24) {
-        this.listener = this::onRoutingChanged;
-        audioTrack.addOnRoutingChangedListener(listener, playbackThreadHandler);
-      } else {
-        this.listenerApi23 = this::onRoutingChanged;
-        audioTrack.addOnRoutingChangedListener(listenerApi23, playbackThreadHandler);
-      }
+      this.listener = this::onRoutingChanged;
+      audioTrack.addOnRoutingChangedListener(listener, playbackThreadHandler);
     }
 
-    private void release() {
-      if (SDK_INT >= 24) {
-        audioTrack.removeOnRoutingChangedListener(checkNotNull(listener));
-        listener = null;
-      } else {
-        audioTrack.removeOnRoutingChangedListener(checkNotNull(listenerApi23));
-        listenerApi23 = null;
-      }
-    }
-
-    @RequiresApi(24)
-    private void onRoutingChanged(AudioRouting router) {
-      onRoutingChanged((AudioTrack) router);
+    @Override
+    public void release() {
+      audioTrack.removeOnRoutingChangedListener(checkNotNull(listener));
+      listener = null;
     }
 
     private void onRoutingChanged(AudioTrack router) {
-      if (listener == null && listenerApi23 == null) {
+      if (listener == null) {
         // Stale event.
         return;
       }
@@ -656,7 +652,54 @@ public final class AudioTrackAudioOutput implements AudioOutput {
                 if (routedDevice != null) {
                   playbackThreadHandler.post(
                       () -> {
-                        if (listener == null && listenerApi23 == null) {
+                        if (listener == null) {
+                          // Stale event.
+                          return;
+                        }
+                        capabilityChangeListener.onRoutedDeviceChanged(routedDevice);
+                      });
+                }
+              });
+    }
+  }
+
+  @RequiresApi(24)
+  private static final class OnRoutingChangedListenerApi24 implements OnRoutingChangedListener {
+
+    private final AudioTrack audioTrack;
+    private final CapabilityChangeListener capabilityChangeListener;
+    private final Handler playbackThreadHandler;
+
+    @Nullable private AudioRouting.OnRoutingChangedListener listener;
+
+    private OnRoutingChangedListenerApi24(
+        AudioTrack audioTrack, CapabilityChangeListener capabilityChangeListener) {
+      this.audioTrack = audioTrack;
+      this.capabilityChangeListener = capabilityChangeListener;
+      this.playbackThreadHandler = Util.createHandlerForCurrentLooper();
+      this.listener = this::onRoutingChanged;
+      audioTrack.addOnRoutingChangedListener(listener, playbackThreadHandler);
+    }
+
+    @Override
+    public void release() {
+      audioTrack.removeOnRoutingChangedListener(checkNotNull(listener));
+      listener = null;
+    }
+
+    private void onRoutingChanged(AudioRouting router) {
+      if (listener == null) {
+        // Stale event.
+        return;
+      }
+      BackgroundExecutor.get()
+          .execute(
+              () -> {
+                @Nullable AudioDeviceInfo routedDevice = router.getRoutedDevice();
+                if (routedDevice != null) {
+                  playbackThreadHandler.post(
+                      () -> {
+                        if (listener == null) {
                           // Stale event.
                           return;
                         }
