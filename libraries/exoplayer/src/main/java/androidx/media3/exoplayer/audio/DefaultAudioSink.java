@@ -135,6 +135,9 @@ public final class DefaultAudioSink implements AudioSink {
    */
   private static final int REPORT_SKIPPED_SILENCE_DELAY_MS = 100;
 
+  /** The time used to ramp up the AudioOutput's volume when starting to play. */
+  private static final int AUDIO_OUTPUT_VOLUME_RAMP_TIME_MS = 20;
+
   /**
    * @deprecated Use {@link androidx.media3.common.audio.AudioProcessorChain}.
    */
@@ -1259,7 +1262,7 @@ public final class DefaultAudioSink implements AudioSink {
     if (!buffer.hasRemaining()) {
       return;
     }
-    outputBuffer = buffer;
+    outputBuffer = maybeRampUpVolume(buffer);
   }
 
   /**
@@ -1895,6 +1898,25 @@ public final class DefaultAudioSink implements AudioSink {
       }
       audioOutput.stop();
     }
+  }
+
+  private ByteBuffer maybeRampUpVolume(ByteBuffer buffer) {
+    if (!configuration.isPcm()) {
+      return buffer;
+    }
+    long rampDurationUs = msToUs(AUDIO_OUTPUT_VOLUME_RAMP_TIME_MS);
+    int rampFrameCount =
+        (int) Util.durationUsToSampleCount(rampDurationUs, configuration.outputConfig.sampleRate);
+    long writtenFrames = getWrittenFrames();
+    if (writtenFrames >= rampFrameCount) {
+      return buffer;
+    }
+    return PcmAudioUtil.rampUpVolume(
+        buffer,
+        configuration.outputConfig.encoding,
+        configuration.outputPcmFrameSize,
+        (int) writtenFrames,
+        rampFrameCount);
   }
 
   private boolean hasAudioOutputPendingData(long writtenFrames) {
