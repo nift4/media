@@ -17,6 +17,7 @@ package androidx.media3.exoplayer.audio;
 
 import static android.os.Build.VERSION.SDK_INT;
 import static androidx.media3.common.util.Util.constrainValue;
+import static androidx.media3.common.util.Util.msToUs;
 import static androidx.media3.exoplayer.audio.DefaultAudioSink.MAX_PITCH;
 import static androidx.media3.exoplayer.audio.DefaultAudioSink.MAX_PLAYBACK_SPEED;
 import static androidx.media3.exoplayer.audio.DefaultAudioSink.MIN_PITCH;
@@ -107,6 +108,7 @@ public final class AudioTrackAudioOutput implements AudioOutput {
   private long writtenEncodedFrames;
   private long lastTunnelingAvSyncPresentationTimeUs;
   @Nullable private ByteBuffer avSyncHeader;
+  @Nullable private ByteBuffer rampedBuffer;
   private int bytesUntilNextAvSync;
   private int framesPerEncodedSample;
   private int lastUnderrunCount;
@@ -250,6 +252,23 @@ public final class AudioTrackAudioOutput implements AudioOutput {
       framesPerEncodedSample = ExtractorUtil.getFramesPerEncodedSample(config.encoding, buffer);
     }
     maybeReportUnderrun();
+    ByteBuffer originalBuffer = buffer;
+    if (isOutputPcm) {
+      long rampDurationUs = msToUs(AUDIO_TRACK_VOLUME_RAMP_TIME_MS);
+      int rampFrameCount = (int) Util.durationUsToSampleCount(rampDurationUs, config.sampleRate);
+      long writtenFrames = getWrittenFrames();
+      if (writtenFrames < rampFrameCount) {
+        if (this.rampedBuffer == null) {
+          this.rampedBuffer = PcmAudioUtil.rampUpVolume(
+              buffer,
+              config.encoding,
+              pcmFrameSize,
+              (int) writtenFrames,
+              rampFrameCount);
+        }
+        buffer = this.rampedBuffer;
+      }
+    }
     int bytesRemaining = buffer.remaining();
     int bytesWrittenOrError;
     if (config.isTunneling) {
@@ -264,7 +283,13 @@ public final class AudioTrackAudioOutput implements AudioOutput {
       bytesWrittenOrError = writeWithAvSync(audioTrack, buffer, presentationTimeUs);
     } else {
       bytesWrittenOrError =
-          audioTrack.write(buffer, buffer.remaining(), AudioTrack.WRITE_NON_BLOCKING);
+        audioTrack.write(buffer, buffer.remaining(), AudioTrack.WRITE_NON_BLOCKING);
+    }
+    if (rampedBuffer != originalBuffer) {
+      // rampUpVolume() will have fully consumed the buffer, but the AudioTrack might not have.
+      // Ensure to communicate the AudioTrack's position correctly to audio sink.
+      originalBuffer.position(originalBuffer.position() - bytesRemaining +
+          Math.max(bytesWrittenOrError, 0));
     }
 
     if (bytesWrittenOrError < 0) {
@@ -280,12 +305,33 @@ public final class AudioTrackAudioOutput implements AudioOutput {
 
     if (isOutputPcm) {
       writtenPcmBytes += bytesWritten;
+      if (fullyHandled) {
+          this.rampedBuffer = null;
+      }
     } else if (fullyHandled) {
       // For non-PCM we can only be sure about the number of written frames once the entire buffer
       // is submitted.
       writtenEncodedFrames += (long) framesPerEncodedSample * encodedAccessUnitCount;
     }
     return fullyHandled;
+  }
+
+  private ByteBuffer maybeRampUpVolume(ByteBuffer buffer) {
+    if (!isOutputPcm) {
+      return buffer;
+    }
+    long rampDurationUs = msToUs(AUDIO_TRACK_VOLUME_RAMP_TIME_MS);
+    int rampFrameCount = (int) Util.durationUsToSampleCount(rampDurationUs, config.sampleRate);
+    long writtenFrames = getWrittenFrames();
+    if (writtenFrames >= rampFrameCount) {
+      return buffer;
+    }
+    return PcmAudioUtil.rampUpVolume(
+      buffer,
+      config.encoding,
+      pcmFrameSize,
+      (int) writtenFrames,
+      rampFrameCount);
   }
 
   @Override
