@@ -213,7 +213,8 @@ import java.util.Objects;
    * If the playback duration to the next media item is under this threshold then the reading period
    * may advance.
    */
-  private static final long DURATION_TO_ADVANCE_READING_THRESHOLD_US = 10 * C.MICROS_PER_SECOND;
+  // accord: raised from 10 s so the crossfade sink can hold up to ~18 s of the outgoing tail.
+  private static final long DURATION_TO_ADVANCE_READING_THRESHOLD_US = 20 * C.MICROS_PER_SECOND;
 
   private final RendererHolder[] renderers;
   private final RendererCapabilities[] rendererCapabilities;
